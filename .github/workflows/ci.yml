@@ -96,7 +96,6 @@ jobs:
           test -f SECURITY.md
           test -f THIRD_PARTY_NOTICES.md
           test -f docs/ADMIN_GUIDE.md
-          test -f docs/RELEASE.md
           test -f docs/ADMIN_GUIDE.md
           test -f docs/USER_GUIDE.md
 

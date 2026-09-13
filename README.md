@@ -119,8 +119,8 @@ npm run licenses:check
 npm run build
 ```
 
-Nextcloud provides the runtime PHP APIs. See [Release and signing](docs/RELEASE.md)
-for installable packages and App Store submission.
+Nextcloud provides the runtime PHP APIs. Installable packages are available from
+the [GitHub releases](https://github.com/Digitale-Medien-der-Armee-DMA/media_embedding_connector/releases).
 
 ## License and support
 
@@ -141,4 +141,3 @@ External contributions are currently closed; see [Contributing](CONTRIBUTING.md)
 - [Privacy and data processing](PRIVACY.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
-- [Release and signing](docs/RELEASE.md)
