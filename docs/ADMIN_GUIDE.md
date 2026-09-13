@@ -68,10 +68,3 @@ Uninstalling the app removes its queued jobs, stored configuration, credentials,
 and local database tables. External Elasticsearch indices and aliases are
 deliberately retained. Delete them manually only after confirming that rollback
 or reuse is no longer required.
-## Elasticsearch connection ownership
-
-The connector uses only its own Elasticsearch URL and credentials. Full Text
-Search backend inheritance is no longer supported. When upgrading an installation
-that previously selected the inherited backend, enter and test the Elasticsearch
-connection in the connector settings before resuming indexing. Existing custom
-connection credentials remain stored; blank credential fields preserve them.
