@@ -51,7 +51,7 @@ Media Embedding Connector invia le immagini supportate e le query di testo a un 
 * Mantieni in Nextcloud nomi dei file, percorsi, utenti, gruppi, condivisioni e dati di controllo degli accessi
 
 L’app richiede un’API di embedding compatibile ed Elasticsearch 8.12 o versione successiva. L’amministrazione mantiene il controllo sugli endpoint di rete, sull’attivazione dell’indicizzazione, sui formati supportati e sulle operazioni di indicizzazione dei contenuti esistenti.]]></description>
-    <version>0.3.6</version>
+    <version>0.3.7</version>
     <licence>AGPL-3.0-or-later</licence>
     <author mail="support@dma.swiss" homepage="https://github.com/Digitale-Medien-der-Armee-DMA">Digitale Medien der Armee DMA</author>
     <namespace>MediaEmbeddingConnector</namespace>

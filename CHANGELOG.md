@@ -3,15 +3,21 @@
 All notable changes to Media Embedding Connector are documented here. Versions follow
 Semantic Versioning.
 
-## Unreleased
+## 0.3.7 - 2026-09-13
 
 - Restore uploaded query images from tab session storage when returning from Files (up to 3 MiB, subject to browser quota).
 - Clear stale text queries when switching to image similarity search.
-- Add text-search, image-search, and administration screenshots to the README.
+- Add text-search and image-search screenshots to the README.
 - Simplify administration, group index operations, and collapse diagnostics and privacy details.
 - Use only connector-owned Elasticsearch configuration; remove Full Text Search inheritance.
 - Give the sidebar toggle a light-blue background and lower the search empty state.
-- Gate tagged publication on the complete CI suite and share archive construction across hosts.
+- Gate GitHub release publication on the complete CI suite and verify installable archives.
+
+### Upgrade note
+
+Installations previously using the Full Text Search backend must configure and
+test the connector's own Elasticsearch connection before resuming indexing.
+Existing connector-owned connection settings are preserved.
 
 ## 0.3.6 - 2026-09-10
 
