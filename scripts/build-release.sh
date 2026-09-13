@@ -24,8 +24,10 @@ git archive --format=tar HEAD | tar -x -C "$stage/$app_id" \
 php scripts/check-controller-files.php "$stage/$app_id/lib/Controller"
 test "$(php -r '$x=simplexml_load_file($argv[1]); echo (string)$x->version;' "$stage/$app_id/appinfo/info.xml")" = "$version"
 archive="$app_id-$version.tar.gz"
-COPYFILE_DISABLE=1 tar -czf "$stage/$archive" -C "$stage" "$app_id"
+COPYFILE_DISABLE=1 tar --format=ustar --no-xattrs --no-acls \
+  -czf "$stage/$archive" -C "$stage" "$app_id"
 gzip -t "$stage/$archive"
+php scripts/check-release-metadata.php "$stage/$archive"
 if tar -tzf "$stage/$archive" | grep -E '(^|/)(\.codex|docs|tests|src|vendor|node_modules|vitest.config.js|\.DS_Store|__MACOSX)(/|$)|/\._'; then
   echo 'Unexpected development files or metadata in release archive' >&2
   exit 1

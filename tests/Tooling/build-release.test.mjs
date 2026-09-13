@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { gunzipSync, gzipSync } from 'node:zlib';
 
 test('release archive excludes development files, verifies version and checksum', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mec-package-test-'));
@@ -17,6 +18,7 @@ test('release archive excludes development files, verifies version and checksum'
     for (const path of ['tests/example.js', 'docs/private.md', '.codex/private.md', 'src/example.js', 'vitest.config.js']) writeFileSync(join(dir, path), 'development only');
     copyFileSync(new URL('../../scripts/build-release.sh', import.meta.url), join(dir, 'scripts/build-release.sh'));
     copyFileSync(new URL('../../scripts/check-controller-files.php', import.meta.url), join(dir, 'scripts/check-controller-files.php'));
+    copyFileSync(new URL('../../scripts/check-release-metadata.php', import.meta.url), join(dir, 'scripts/check-release-metadata.php'));
     run('git', ['init', '-q']);
     run('git', ['add', '.']);
     run('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'Fixture']);
@@ -25,6 +27,14 @@ test('release archive excludes development files, verifies version and checksum'
     const contents = run('tar', ['-tzf', 'build/' + file]);
     assert.match(contents, /media_embedding_connector\/js\/search.js/);
     assert.doesNotMatch(contents, /\/(\.codex|tests|docs|src|scripts)\/|vitest.config/);
+    const tarBytes = gunzipSync(readFileSync(join(dir, 'build', file)));
+    assert.ok(!tarBytes.includes(Buffer.from('LIBARCHIVE.xattr.')));
+    for (const type of ['x', 'g']) {
+      const metadataArchive = Buffer.from(tarBytes);
+      metadataArchive[156] = type.charCodeAt(0);
+      writeFileSync(join(dir, 'metadata.tar.gz'), gzipSync(metadataArchive));
+      assert.throws(() => run('php', ['scripts/check-release-metadata.php', 'metadata.tar.gz']));
+    }
     const hash = createHash('sha256').update(readFileSync(join(dir, 'build', file))).digest('hex');
     assert.ok(readFileSync(join(dir, 'build', file + '.sha256'), 'utf8').startsWith(hash));
     assert.throws(() => run('bash', ['scripts/build-release.sh'], { RELEASE_TAG: 'v9.9.9' }));
