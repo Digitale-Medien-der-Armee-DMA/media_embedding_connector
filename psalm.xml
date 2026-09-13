@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<psalm
+    errorLevel="3"
+    resolveFromConfigFile="true"
+    phpVersion="8.2"
+    findUnusedCode="false"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="https://getpsalm.org/schema/config"
+    xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
+>
+    <projectFiles>
+        <directory name="lib" />
+        <ignoreFiles>
+            <directory name="vendor" />
+        </ignoreFiles>
+    </projectFiles>
+    <extraFiles>
+        <directory name="vendor" />
+    </extraFiles>
+    <stubs>
+        <file name="psalm-stubs/NextcloudPrivateTypes.php" />
+    </stubs>
+    <issueHandlers>
+        <!-- #[Override] is only available from PHP 8.3, while the app supports PHP 8.2. -->
+        <MissingOverrideAttribute errorLevel="suppress" />
+
+        <!-- nextcloud/ocp deliberately references implementation and DBAL types that
+             are supplied by Nextcloud itself rather than by the app package. -->
+        <UndefinedDocblockClass>
+            <errorLevel type="suppress">
+                <referencedClass name="Doctrine\DBAL\Schema\Table" />
+            </errorLevel>
+        </UndefinedDocblockClass>
+    </issueHandlers>
+</psalm>

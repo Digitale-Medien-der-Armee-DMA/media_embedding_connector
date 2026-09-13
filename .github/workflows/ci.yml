@@ -1,0 +1,310 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate app
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.2", "8.3", "8.4", "8.5"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+          extensions: dom, json, mbstring
+          tools: composer
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Install development dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: Validate JSON files
+        run: |
+          set -euo pipefail
+          find . -path ./.git -prune -o -name '*.json' -print0 \
+            | xargs -0 -n1 php -r 'json_decode(file_get_contents($argv[1])); if (json_last_error() !== JSON_ERROR_NONE) { fwrite(STDERR, $argv[1] . ": " . json_last_error_msg() . PHP_EOL); exit(1); }'
+
+      - name: Validate XML files
+        run: |
+          set -euo pipefail
+          find . -path ./.git -prune -o -name '*.xml' -print0 \
+            | xargs -0 -n1 php -r '$doc = new DOMDocument(); $doc->load($argv[1]) || exit(1);'
+
+      - name: Validate Nextcloud App Store metadata
+        run: |
+          set -euo pipefail
+          schema=/tmp/nextcloud-app-info.xsd
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/nextcloud/appstore/9b0f8990718457710e20702b7b930932f2aed093/nextcloudappstore/api/v1/release/info.xsd \
+            --output "${schema}"
+          php -r '$doc = new DOMDocument(); $doc->load("appinfo/info.xml") || exit(1); $doc->schemaValidate($argv[1]) || exit(1);' "${schema}"
+
+      - name: PHP syntax check
+        run: |
+          set -euo pipefail
+          find appinfo lib templates -name '*.php' -print0 \
+            | xargs -0 -n1 php -l
+          php scripts/check-controller-files.php
+
+      - name: Generate Composer autoloader
+        run: composer dump-autoload --optimize --strict-psr --no-interaction
+
+      - name: Run unit tests
+        run: composer test
+
+      - name: Run Nextcloud API static analysis
+        if: matrix.php-version == '8.2'
+        run: composer psalm
+
+      - name: Check committed app files
+        run: |
+          set -euo pipefail
+          test -f appinfo/info.xml
+          test -f appinfo/routes.php
+          test -f img/app.svg
+          test -f LICENSE
+          test -f CHANGELOG.md
+          test -f PRIVACY.md
+          test -f README.md
+          test -f SECURITY.md
+          test -f THIRD_PARTY_NOTICES.md
+          test -f docs/ADMIN_GUIDE.md
+          test -f docs/RELEASE.md
+          test -f docs/ADMIN_GUIDE.md
+          test -f docs/USER_GUIDE.md
+
+      - name: Check embedding API base path
+        run: |
+          set -euo pipefail
+          grep -R "/api/external/v1" README.md docs appinfo lib templates js
+          ! grep -R "https\?://[^[:space:]]*/v1" README.md docs appinfo lib templates js
+
+      - name: Forbid checked-in secrets
+        run: |
+          set -euo pipefail
+          ! grep -R "mlab_ext_[A-Za-z0-9_:-]" . \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude='*.md'
+
+  frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install locked frontend dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+
+      - name: Enforce dependency license policy
+        run: npm run licenses:check
+
+      - name: Test frontend
+        run: npm run test:frontend
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Set up PHP for release preparation tests
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          extensions: simplexml
+
+      - name: Test release preparation
+        run: node --test tests/Tooling/*.test.mjs
+
+      - name: Verify committed frontend assets
+        run: git diff --exit-code -- js/admin.js js/search.js css/admin.css css/search.css
+
+      - name: Verify translation files are in sync
+        run: |
+          set -euo pipefail
+          for lang in de fr it; do
+            json="$(node -e "console.log(Object.keys(require('./l10n/${lang}.json').translations).join('\n'))")"
+            js="$(node -e "global.OC={L10N:{register:(_id,t)=>console.log(Object.keys(t).join('\n'))}};require('./l10n/${lang}.js')")"
+            if [ "${json}" != "${js}" ]; then
+              echo "l10n/${lang}.js and l10n/${lang}.json do not contain the same strings" >&2
+              exit 1
+            fi
+          done
+
+      - name: JavaScript syntax check
+        run: |
+          set -euo pipefail
+          find js l10n src scripts \( -name '*.js' -o -name '*.mjs' \) -print0 \
+            | xargs -0 -r -n1 node --check
+
+  package:
+    name: Validate release archive
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: [validate, frontend, elasticsearch, dependency-audit, secret-scan]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          extensions: simplexml
+
+      - name: Build and verify release archive
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: bash scripts/build-release.sh
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --title "Media Embedding Connector ${RELEASE_TAG}" \
+              --generate-notes
+          fi
+          gh release upload "${RELEASE_TAG}" \
+            build/*.tar.gz \
+            build/*.sha256 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+
+  elasticsearch:
+    name: Elasticsearch 8.16 contract
+    runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.16.6
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl --fail http://localhost:9200/_cluster/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.2"
+          coverage: none
+
+      - name: Wait for Elasticsearch
+        env:
+          ELASTICSEARCH_URL: http://127.0.0.1:9200
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if php -r '$url = getenv("ELASTICSEARCH_URL") . "/_cluster/health?wait_for_status=yellow&timeout=1s"; exit(@file_get_contents($url) === false ? 1 : 0);'; then
+              echo "Elasticsearch is ready"
+              exit 0
+            fi
+            echo "Waiting for Elasticsearch (${attempt}/60)"
+            sleep 2
+          done
+          echo "Elasticsearch did not become ready" >&2
+          exit 1
+
+      - name: Run Elasticsearch vector contract test
+        env:
+          ELASTICSEARCH_URL: http://127.0.0.1:9200
+        run: php tests/Integration/elasticsearch_contract.php
+
+  dependency-audit:
+    name: Composer dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          extensions: json
+          tools: composer
+
+      - name: Install locked dependencies without scripts
+        run: composer install --no-interaction --no-progress --no-scripts
+
+      - name: Audit Composer dependencies
+        run: composer audit --format=plain
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.24"
+
+      - name: Install Gitleaks CLI
+        run: go install github.com/zricethezav/gitleaks/v8@latest
+
+      - name: Run Gitleaks
+        run: gitleaks detect --source . --redact --verbose

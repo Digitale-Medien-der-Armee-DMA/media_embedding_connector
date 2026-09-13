@@ -1,0 +1,210 @@
+/*
+ * Layout helpers for the admin settings. Colours, spacing tokens, and the
+ * form controls themselves come from Nextcloud and @nextcloud/vue; these rules
+ * only arrange the components inside each settings section.
+ */
+
+.mec-admin .settings-section {
+	margin-block: 20px;
+	padding-block-end: 24px;
+}
+
+.mec-admin .settings-section__name {
+	font-size: 20px;
+	line-height: 1.4;
+	margin-bottom: 16px;
+}
+
+.mec-admin > .settings-section:first-child .settings-section__name {
+	font-size: 26px;
+}
+
+.mec-save,
+.mec-admin > .mec-disclosure {
+	margin: 20px 28px;
+	max-width: 900px;
+}
+
+.mec-disclosure > summary {
+	cursor: pointer;
+	font-weight: 600;
+	padding-block: 12px;
+}
+
+.mec-save--inline {
+	margin: 24px 0;
+}
+
+.mec-disclosure > summary:focus-visible {
+	outline: 2px solid var(--color-primary-element);
+	outline-offset: 2px;
+}
+
+.mec-disclosure .settings-section {
+	margin: 8px 0;
+	width: 100%;
+}
+
+.mec-disclosure--inline {
+	margin-block: 8px;
+}
+
+.mec-fields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20px 16px;
+	max-width: 900px;
+	margin-block-end: 12px;
+}
+
+.mec-fields > * {
+	min-width: 0;
+}
+
+.mec-field--wide {
+	grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+	.mec-fields {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.mec-row {
+		flex-wrap: wrap;
+	}
+}
+
+.mec-row {
+	display: flex;
+	align-items: flex-end;
+	gap: 12px;
+	margin-block: 12px;
+}
+
+.mec-row--wrap {
+	flex-wrap: wrap;
+}
+
+.mec-row__narrow {
+	max-width: 260px;
+}
+
+.mec-row__select {
+	min-width: 260px;
+}
+
+.mec-fieldset {
+	border: none;
+	padding: 0;
+	margin: 0 0 12px;
+}
+
+.mec-fieldset__legend {
+	padding: 0;
+	margin-block-end: 4px;
+	font-weight: bold;
+}
+
+.mec-subheading {
+	margin-block: 20px 4px;
+	font-weight: bold;
+}
+
+.mec-hint {
+	color: var(--color-text-maxcontrast);
+	max-width: 70ch;
+}
+
+.mec-flow {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 16px;
+	margin-block: 12px;
+	max-width: 900px;
+}
+
+.mec-flow__stage dt {
+	font-weight: bold;
+	margin-block-end: 2px;
+}
+
+.mec-flow__stage dd {
+	margin: 0;
+	color: var(--color-text-maxcontrast);
+}
+
+.mec-metrics {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 12px;
+	max-width: 900px;
+}
+
+.mec-metric {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 12px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--border-radius-large);
+	background-color: var(--color-background-hover);
+}
+
+.mec-metric__value {
+	font-size: 20px;
+	font-weight: bold;
+}
+
+.mec-metric__label {
+	color: var(--color-text-maxcontrast);
+}
+
+.mec-list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	max-width: 900px;
+}
+
+.mec-list__row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	padding-block: 6px;
+	border-block-end: 1px solid var(--color-border);
+}
+
+.mec-list__name {
+	font-family: var(--font-face-monospace, monospace);
+}
+
+.mec-list__meta {
+	color: var(--color-text-maxcontrast);
+}
+
+.mec-facts {
+	margin: 0;
+	padding-inline-start: 20px;
+	max-width: 80ch;
+}
+
+.mec-facts li {
+	list-style: disc;
+	margin-block-end: 4px;
+}
+
+.mec-file-input {
+	max-width: 280px;
+}
+
+.mec-output {
+	max-height: 320px;
+	overflow: auto;
+	padding: 12px;
+	border-radius: var(--border-radius-large);
+	background-color: var(--color-background-dark);
+	font-family: var(--font-face-monospace, monospace);
+	white-space: pre-wrap;
+	word-break: break-word;
+}

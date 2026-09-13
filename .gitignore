@@ -1,0 +1,10 @@
+/build/
+/.codex/
+/node_modules/
+/vendor/
+/.phpunit.cache/
+/.idea/
+/.vscode/
+.DS_Store
+._*
+__MACOSX/

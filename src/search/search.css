@@ -1,0 +1,236 @@
+/*
+ * Layout for the search results. Chrome, navigation, and controls come from
+ * @nextcloud/vue; these rules cover the justified grid and its tiles, which
+ * have no component equivalent.
+ */
+
+.mec-search {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 8px;
+	border-radius: var(--border-radius-large);
+	transition: background-color 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+}
+
+.mec-search--drop-active {
+	background-color: var(--color-primary-element-light);
+	box-shadow: inset 0 0 0 2px var(--color-primary-element);
+}
+
+/* Keep the navigation toggle in the sidebar while it is open. The component's
+ * default outside position remains available to reopen a closed sidebar. */
+.app-navigation:not(.app-navigation--closed) .app-navigation-toggle-wrapper {
+	inset-inline-end: 8px;
+	margin-inline-end: 0;
+}
+
+.app-navigation:not(.app-navigation--closed) .mec-search {
+	padding-inline-end: calc(var(--default-clickable-area) + 12px);
+}
+
+.mec-search__field {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.app-navigation .app-navigation-toggle-wrapper button.app-navigation-toggle {
+	background-color: #d5e4f2;
+	color: #1c2733;
+}
+
+.app-navigation .app-navigation-toggle-wrapper button.app-navigation-toggle:hover {
+	background-color: #bfd8ed;
+}
+
+.mec-content .mec-search-empty {
+	margin-block-start: clamp(64px, 12vh, 140px);
+	padding-inline: 24px;
+}
+
+.mec-search__file {
+	display: none;
+}
+
+.mec-context {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 4px 8px 8px;
+	padding: 4px 4px 4px 8px;
+	border-radius: var(--border-radius-large);
+	background-color: var(--color-primary-element-light);
+}
+
+.mec-context__label {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: bold;
+}
+
+.mec-context__preview {
+	width: 32px;
+	height: 32px;
+	object-fit: cover;
+	border-radius: var(--border-radius);
+}
+
+.mec-content {
+	position: relative;
+	height: 100%;
+	overflow-y: auto;
+	scrollbar-gutter: stable;
+}
+
+/* When the sidebar is closed, reserve a compact toolbar row for its reopen
+ * button so it never covers the first result tile or the empty state. */
+.app-navigation--closed + .app-content .mec-content {
+	padding-top: calc(var(--default-clickable-area) + 2 * var(--app-navigation-padding));
+	box-sizing: border-box;
+}
+
+.mec-drop {
+	position: absolute;
+	inset: 0;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	background-color: var(--color-main-background-translucent);
+	border: 2px dashed var(--color-primary-element);
+	border-radius: var(--border-radius-large);
+	pointer-events: none;
+}
+
+.mec-grid {
+	position: relative;
+	padding: 8px;
+}
+
+.mec-sentinel {
+	height: 1px;
+}
+
+.mec-more {
+	display: flex;
+	justify-content: center;
+	padding: 16px;
+}
+
+.mec-tile {
+	position: absolute;
+	top: 0;
+	left: 0;
+	overflow: hidden;
+	border-radius: var(--border-radius);
+	background-color: var(--color-background-dark);
+}
+
+.mec-tile--reference {
+	outline: 2px solid var(--color-primary-element);
+	outline-offset: -2px;
+}
+
+.mec-tile__link {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+.mec-tile__image {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.mec-tile__overlay {
+	position: absolute;
+	inset-inline: 0;
+	bottom: 0;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	color: #fff;
+	background: linear-gradient(to top, rgb(0 0 0 / 70%), transparent);
+	opacity: 0;
+	transition: opacity 0.1s ease-in-out;
+}
+
+.mec-tile:hover .mec-tile__overlay,
+.mec-tile:focus-within .mec-tile__overlay {
+	opacity: 1;
+}
+
+.mec-tile__name {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.mec-tile__score,
+.mec-tile__badge {
+	flex: 0 0 auto;
+	font-variant-numeric: tabular-nums;
+}
+
+.mec-tile__badge {
+	padding: 1px 6px;
+	border-radius: var(--border-radius-pill, 16px);
+	background-color: var(--color-primary-element);
+}
+
+.mec-tile__overlay .mec-tile__action {
+	color: #fff;
+}
+
+.mec-tile__info,
+.mec-tile__touch-details {
+	display: none;
+}
+
+/* Pointer-less devices get an explicit info toggle instead of a hover overlay. */
+@media (hover: none) {
+	.mec-tile__info {
+		display: block;
+		position: absolute;
+		top: 2px;
+		inset-inline-end: 2px;
+		z-index: 2;
+		color: #fff;
+	}
+
+	.mec-tile__touch-details {
+		display: none;
+		position: absolute;
+		inset-inline: 0;
+		bottom: 0;
+		padding: 6px 8px;
+		color: #fff;
+		background: linear-gradient(to top, rgb(0 0 0 / 70%), transparent);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mec-tile--info-open .mec-tile__touch-details {
+		display: block;
+	}
+
+	.mec-tile__overlay {
+		display: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.mec-search,
+	.mec-tile__overlay {
+		transition: none;
+	}
+}

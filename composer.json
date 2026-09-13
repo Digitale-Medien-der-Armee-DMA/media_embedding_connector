@@ -1,0 +1,35 @@
+{
+  "name": "dma/media-embedding-connector",
+  "description": "Media Embedding Connector app for Nextcloud",
+  "type": "project",
+  "license": "AGPL-3.0-or-later",
+  "authors": [
+    {
+      "name": "Digitale Medien der Armee DMA",
+      "email": "support@dma.swiss"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "OCA\\MediaEmbeddingConnector\\": "lib/"
+    }
+  },
+  "require": {
+    "php": ">=8.2 <8.6"
+  },
+  "require-dev": {
+    "nextcloud/ocp": "^34.0",
+    "vimeo/psalm": "^6.16",
+    "phpunit/phpunit": "^10.5"
+  },
+  "scripts": {
+    "psalm": "psalm --no-cache --threads=1",
+    "test": "phpunit --configuration phpunit.xml"
+  },
+  "config": {
+    "platform": {
+      "php": "8.2.27"
+    },
+    "sort-packages": true
+  }
+}
