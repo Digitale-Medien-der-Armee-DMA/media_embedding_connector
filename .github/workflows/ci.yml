@@ -203,18 +203,22 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if ! gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release create "${RELEASE_TAG}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --verify-tag \
-              --title "Media Embedding Connector ${RELEASE_TAG}" \
-              --generate-notes
+          # Existing releases may contain manually signed archives. Preserve the
+          # complete asset set so archives, checksums and signatures stay paired.
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; preserving all release assets."
+            exit 0
           fi
+          gh release create "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "Media Embedding Connector ${RELEASE_TAG}" \
+            --generate-notes
+          # Never overwrite assets, including when another publisher races us.
           gh release upload "${RELEASE_TAG}" \
             build/*.tar.gz \
             build/*.sha256 \
-            --repo "${GITHUB_REPOSITORY}" \
-            --clobber
+            --repo "${GITHUB_REPOSITORY}"
 
   elasticsearch:
     name: Elasticsearch 8.16 contract
