@@ -208,3 +208,49 @@
 	white-space: pre-wrap;
 	word-break: break-word;
 }
+
+.mec-backfill {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	max-width: 900px;
+	margin-block: 8px 12px;
+}
+
+.mec-backfill__status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+}
+
+.mec-backfill__progress {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.mec-badge {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: var(--border-radius-pill);
+	font-weight: bold;
+	background-color: var(--color-background-dark);
+	color: var(--color-main-text);
+}
+
+.mec-badge--info {
+	background-color: var(--color-primary-element-light);
+	color: var(--color-primary-element-light-text);
+}
+
+.mec-badge--success {
+	color: var(--color-success-text);
+	box-shadow: inset 0 0 0 1px var(--color-success);
+}
+
+.mec-badge--warning {
+	color: var(--color-warning-text);
+	box-shadow: inset 0 0 0 1px var(--color-warning);
+}

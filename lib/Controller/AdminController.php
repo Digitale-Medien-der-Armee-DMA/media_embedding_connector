@@ -26,6 +26,7 @@ use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\Attribute\OpenAPI;
 use OCP\BackgroundJob\IJobList;
 use OCP\IRequest;
+use OCP\IUserManager;
 use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 
@@ -50,6 +51,7 @@ class AdminController extends Controller
         private AuditRepository $audit,
         private IJobList $jobList,
         private IUserSession $userSession,
+        private IUserManager $userManager,
         private LoggerInterface $logger,
     ) {
         parent::__construct(Application::APP_ID, $request);
@@ -358,11 +360,21 @@ class AdminController extends Controller
             'queued_backfill' => $this->jobs->countQueuedBackfill(),
             'max_queued' => $this->config->getBackfillMaxQueued(),
             'user_offset' => $state['user_offset'],
+            'users_total' => $this->countSeenUsers(),
             'current_user' => $state['user_id'],
             'counters' => $state['counters'],
             'last_error' => $state['last_error'],
             'skipped_roots' => $state['skipped_roots'],
         ];
+    }
+
+    private function countSeenUsers(): ?int
+    {
+        try {
+            return (int)$this->userManager->countSeenUsers();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     public function deleteIndex(): DataResponse

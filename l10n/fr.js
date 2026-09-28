@@ -131,6 +131,22 @@ OC.L10N.register(
     "Parallel image batch requests per token" : "Requêtes de lots d’images parallèles par jeton",
     "Image batch request timeout" : "Délai d’attente des requêtes de lot d’images",
     "No index has been prepared yet." : "Aucun index n’a encore été préparé.",
-    "Test embeddings and inspect diagnostic results." : "Testez les embeddings et consultez les résultats du diagnostic."
+    "Test embeddings and inspect diagnostic results." : "Testez les embeddings et consultez les résultats du diagnostic.",
+    "Backfill progress" : "Progression de l’indexation initiale",
+    "{done} of {total} users scanned" : "{done} utilisateurs sur {total} analysés",
+    "No scan progress for more than 15 minutes. Check that Nextcloud cron or the worker command is running." : "Aucune progression de l’analyse depuis plus de 15 minutes. Vérifiez que le cron de Nextcloud ou la commande worker est en cours d’exécution.",
+    "Last scan error" : "Dernière erreur d’analyse",
+    "{count} scan locations were skipped after repeated failures." : "{count} emplacements ont été ignorés après des échecs répétés.",
+    "Completed" : "Terminé",
+    "Not started" : "Non démarré",
+    "Paused" : "En pause",
+    "Waiting for the queue" : "En attente de la file",
+    "Scanning" : "Analyse en cours",
+    "Finished {time}" : "Terminé le {time}",
+    "Last activity {time}" : "Dernière activité : {time}",
+    "Images checked" : "Images vérifiées",
+    "Queued for indexing" : "Mises en file pour l’indexation",
+    "Unchanged, not queued" : "Inchangées, non mises en file",
+    "Waiting in queue" : "En attente dans la file"
 },
 "nplurals=2; plural=(n > 1);");

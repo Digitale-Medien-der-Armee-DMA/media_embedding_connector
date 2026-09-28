@@ -14,8 +14,9 @@
   the active model, both when scanning and before sending an image.
 - Queue and claim jobs without locking the job table.
 - Delete indexed and skipped job rows after a retention period.
-- Log backfill scan failures with their exception and report scan progress in
-  the administration status.
+- Log backfill scan failures with their exception.
+- Show backfill scan progress, queue throttling, stalled scans, and the last
+  scan error in the administration settings.
 
 ## 0.3.7 - 2026-09-13
 

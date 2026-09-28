@@ -79,10 +79,16 @@ media_embedding_connector <key> --value=<number> --type=integer`.
 images continue to be processed. **Resume backfill** continues from that
 position. **Start backfill** keeps the position of a running scan. To scan all
 users again from the beginning, send `restart=1` with the start request;
-unchanged images are still skipped. The administration status endpoint reports
-scan progress, throttling, the last scan error, and any scan roots that were
-skipped after repeated failures. Scan errors are logged with the underlying
-exception.
+unchanged images are still skipped.
+
+Under **Existing images**, the administration page shows the scan state
+(scanning, waiting for the queue, paused, completed), scanned users, checked,
+queued, and unchanged images, and the number of backfill images waiting in the
+queue. It warns when a running scan has not progressed for 15 minutes, which
+usually means that neither cron nor the worker command is running, and shows
+the last scan error and any scan locations skipped after repeated failures.
+The page refreshes this status every 30 seconds while work is pending. Scan
+errors are logged with the underlying exception.
 
 ### Continuous worker for large collections
 

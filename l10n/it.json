@@ -129,6 +129,22 @@
     "Parallel image batch requests per token" : "Richieste di lotti di immagini parallele per token",
     "Image batch request timeout" : "Timeout delle richieste per lotto di immagini",
     "No index has been prepared yet." : "Nessun indice è ancora stato preparato.",
-    "Test embeddings and inspect diagnostic results." : "Testa gli embedding e consulta i risultati diagnostici."
+    "Test embeddings and inspect diagnostic results." : "Testa gli embedding e consulta i risultati diagnostici.",
+    "Backfill progress" : "Avanzamento dell’indicizzazione iniziale",
+    "{done} of {total} users scanned" : "{done} utenti su {total} analizzati",
+    "No scan progress for more than 15 minutes. Check that Nextcloud cron or the worker command is running." : "Nessun avanzamento della scansione da oltre 15 minuti. Verifica che il cron di Nextcloud o il comando worker sia in esecuzione.",
+    "Last scan error" : "Ultimo errore di scansione",
+    "{count} scan locations were skipped after repeated failures." : "{count} posizioni sono state saltate dopo errori ripetuti.",
+    "Completed" : "Completato",
+    "Not started" : "Non avviato",
+    "Paused" : "In pausa",
+    "Waiting for the queue" : "In attesa della coda",
+    "Scanning" : "Scansione in corso",
+    "Finished {time}" : "Completato il {time}",
+    "Last activity {time}" : "Ultima attività: {time}",
+    "Images checked" : "Immagini verificate",
+    "Queued for indexing" : "Accodate per l’indicizzazione",
+    "Unchanged, not queued" : "Invariate, non accodate",
+    "Waiting in queue" : "In attesa nella coda"
 },"pluralForm" :"nplurals=2; plural=(n != 1);"
 }

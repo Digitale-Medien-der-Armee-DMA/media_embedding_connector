@@ -38,6 +38,8 @@
 			v-model:allowed-mime-types="form.allowedImageMimeTypes"
 			v-model:disabled-mime-types="form.disabledImageMimeTypes"
 			:indexing-enabled="indexingEnabled"
+			:backfill="status.backfill ?? null"
+			:now="statusFetchedAt"
 			:busy="busy"
 			@prepare-index="prepareIndex"
 			@activate-index="activateIndex"
@@ -97,7 +99,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import NcButton from '@nextcloud/vue/components/NcButton';
 import NcDialog from '@nextcloud/vue/components/NcDialog';
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon';
@@ -111,6 +113,8 @@ import ServiceConnectionSection from './ServiceConnectionSection.vue';
 import StatusSection from './StatusSection.vue';
 import { post, request } from '../api.js';
 import { t } from '../l10n.js';
+
+const STATUS_POLL_INTERVAL_MS = 30_000;
 
 const props = defineProps({ state: { type: Object, required: true } });
 const state = props.state;
@@ -144,6 +148,8 @@ const statusLoading = ref(false);
 const testing = reactive({ service: false, elasticsearch: false });
 const results = reactive({ service: null, elasticsearch: null });
 const status = ref({});
+const statusFetchedAt = ref(Math.floor(Date.now() / 1000));
+let statusPollTimer = null;
 const notification = ref(null);
 const output = ref('');
 const confirmation = ref(null);
@@ -327,12 +333,33 @@ async function refreshStatus() {
 		const result = await request(state.status_url);
 		if (result.ok) {
 			status.value = result.payload;
+			statusFetchedAt.value = Math.floor(Date.now() / 1000);
 			indexingEnabled.value = Boolean(result.payload.indexing_enabled);
 		} else {
 			showOutput(result.payload);
 		}
 	} finally {
 		statusLoading.value = false;
+		scheduleStatusPoll();
+	}
+}
+
+/** Refresh the status periodically while a backfill or queued work is in progress. */
+function scheduleStatusPoll() {
+	clearTimeout(statusPollTimer);
+	const backfill = status.value.backfill ?? {};
+	const jobs = status.value.jobs ?? {};
+	const active = (backfill.status === 'running' && !backfill.paused)
+		|| Number(jobs.queued ?? 0) > 0
+		|| Number(jobs.running ?? 0) > 0;
+	if (active) {
+		statusPollTimer = setTimeout(() => {
+			if (document.hidden || busy.value) {
+				scheduleStatusPoll();
+				return;
+			}
+			refreshStatus();
+		}, STATUS_POLL_INTERVAL_MS);
 	}
 }
 
@@ -478,4 +505,5 @@ async function inspectContract() {
 }
 
 onMounted(refreshStatus);
+onBeforeUnmount(() => clearTimeout(statusPollTimer));
 </script>

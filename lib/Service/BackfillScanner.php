@@ -103,7 +103,10 @@ class BackfillScanner
             $queued = $this->jobs->countQueuedBackfill();
             $state['queued_backfill'] = $queued;
             if ($queued >= $maxQueued) {
+                // Saving also refreshes updated_at, so a throttled scan does
+                // not look stalled in the administration status.
                 $state['throttled_at'] = time();
+                $this->save($state);
                 break;
             }
 
@@ -111,6 +114,7 @@ class BackfillScanner
             try {
                 $state = $this->step($state, $pageSize);
                 $state['error_count'] = 0;
+                $state['throttled_at'] = null;
             } catch (\Throwable $e) {
                 $state = $this->recordFailure($state, $e);
                 $this->save($state);

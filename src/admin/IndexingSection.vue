@@ -79,6 +79,7 @@
 			</NcButton>
 			</div>
 		<h4 class="mec-subheading">{{ t('Existing images') }}</h4>
+		<BackfillProgress v-if="backfill" :backfill="backfill" :now="now" />
 		<div class="mec-row mec-row--wrap">
 			<NcButton variant="secondary" :disabled="busy" @click="$emit('start-backfill')">
 				<template #icon>
@@ -118,6 +119,7 @@ import ImageMultipleIcon from 'vue-material-design-icons/ImageMultiple.vue';
 import PauseIcon from 'vue-material-design-icons/Pause.vue';
 import PlayIcon from 'vue-material-design-icons/Play.vue';
 import RefreshIcon from 'vue-material-design-icons/Refresh.vue';
+import BackfillProgress from './BackfillProgress.vue';
 import { t } from '../l10n.js';
 
 defineProps({
@@ -130,6 +132,8 @@ defineProps({
 	disabledMimeTypes: { type: String, required: true },
 	indexingEnabled: { type: Boolean, default: false },
 	busy: { type: Boolean, default: false },
+	backfill: { type: Object, default: null },
+	now: { type: Number, default: () => Math.floor(Date.now() / 1000) },
 });
 
 defineEmits([

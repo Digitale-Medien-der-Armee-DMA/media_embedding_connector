@@ -181,6 +181,13 @@ class BackfillScannerTest extends TestCase
         self::assertNotNull($state['throttled_at']);
         self::assertSame([], $this->pageCalls);
         self::assertSame([], $this->enqueued);
+        self::assertNotNull($this->stateStore[BackfillScanner::STATE_KEY]['throttled_at'], 'Throttling is persisted.');
+
+        $this->indexedFiles->method('findByFileIds')->willReturn([]);
+        $this->queuedBackfill = 0;
+        $state = $this->scanner->runSlice(30);
+        self::assertNull($state['throttled_at']);
+        self::assertSame([['100', 'alice', 'e']], $this->enqueued);
     }
 
     public function testPageSizeShrinksToRemainingQueueCapacity(): void
