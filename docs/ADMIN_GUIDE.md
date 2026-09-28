@@ -123,6 +123,61 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
+#### Complete systemd setup
+
+A more complete unit, saved as
+`/etc/systemd/system/media-embedding-worker.service`:
+
+```ini
+[Unit]
+Description=Media Embedding Connector worker
+After=network-online.target mariadb.service mysql.service postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/nextcloud
+ExecStart=/usr/bin/php occ media_embedding_connector:worker --time-limit=3600 -v
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Adjust `User` to the account that runs Nextcloud (for example `www-data`,
+`nginx`, or `apache`), the PHP and Nextcloud paths, and the services listed in
+`After=`. systemd ignores listed services that do not exist.
+
+Enable, start, and monitor the worker:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now media-embedding-worker
+systemctl status media-embedding-worker
+journalctl -u media-embedding-worker -f
+```
+
+With `-v`, the worker writes a journal line whenever it has processed images.
+Errors are written to the Nextcloud log as usual.
+
+- The worker exits every hour because of `--time-limit=3600`, and
+  `Restart=always` starts a fresh process five seconds later. This releases
+  memory and loads new app code after an upgrade. `--time-limit=0` disables
+  the limit.
+- Stopping the worker ends the process immediately, including a batch that is
+  in progress. The images claimed by that batch return to the queue after 30
+  minutes and are processed again.
+- Stop the worker before upgrading the app and start it again afterwards:
+  `sudo systemctl stop media-embedding-worker`.
+- If Nextcloud runs in a container, run the command inside it, for example
+  `ExecStart=/usr/bin/docker exec -u www-data <container> php occ media_embedding_connector:worker --time-limit=3600 -v`.
+- To run several workers, use a template unit such as
+  `media-embedding-worker@.service` and start `@1`, `@2`, and so on. Add
+  `--no-scan` to all instances except one so that only one process advances
+  the backfill scan. One worker next to cron is usually sufficient.
+
 Increase batch size and parallel requests only after measuring the throughput
 and error rate of the Media Embedding Service.
 
