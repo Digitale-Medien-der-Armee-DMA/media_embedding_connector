@@ -89,4 +89,32 @@ class SkipMarkerRepository
             'reset_supported' => ['all', 'nextcloud_file_id', 'reason'],
         ];
     }
+
+    /**
+     * @param list<string> $fileIds
+     * @return array<string, array<string, mixed>> rows keyed by file id
+     */
+    public function findByFileIds(array $fileIds): array
+    {
+        if ($fileIds === []) {
+            return [];
+        }
+
+        $rows = [];
+        foreach (array_chunk(array_values(array_unique($fileIds)), 1000) as $chunk) {
+            $qb = $this->db->getQueryBuilder();
+            $result = $qb->select('*')
+                ->from(self::TABLE)
+                ->where($qb->expr()->in('file_id', $qb->createNamedParameter(
+                    array_map('intval', $chunk),
+                    IQueryBuilder::PARAM_INT_ARRAY,
+                )))
+                ->executeQuery();
+            foreach (ResultCompat::fetchAllAssociative($result) as $row) {
+                $rows[(string)$row['file_id']] = $row;
+            }
+            $result->closeCursor();
+        }
+        return $rows;
+    }
 }

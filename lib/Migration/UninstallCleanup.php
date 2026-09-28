@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace OCA\MediaEmbeddingConnector\Migration;
 
 use OCA\MediaEmbeddingConnector\AppInfo\Application;
+use OCA\MediaEmbeddingConnector\BackgroundJob\BackfillScanJob;
+use OCA\MediaEmbeddingConnector\BackgroundJob\CleanupIndexJobsJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\DiscoverBackfillUsersJob;
+use OCA\MediaEmbeddingConnector\BackgroundJob\ImageEmbeddingWorkerJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessImageEmbeddingBatchJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessIndexJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ScanBackfillFolderJob;
@@ -46,6 +49,9 @@ class UninstallCleanup implements IRepairStep
      */
     private const JOBS = [
         ProcessIndexJob::class,
+        ImageEmbeddingWorkerJob::class,
+        BackfillScanJob::class,
+        CleanupIndexJobsJob::class,
         ProcessImageEmbeddingBatchJob::class,
         DiscoverBackfillUsersJob::class,
         ScanBackfillFolderJob::class,

@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace OCA\MediaEmbeddingConnector\Controller;
 
 use OCA\MediaEmbeddingConnector\AppInfo\Application;
-use OCA\MediaEmbeddingConnector\BackgroundJob\DiscoverBackfillUsersJob;
-use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessImageEmbeddingBatchJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessIndexJob;
 use OCA\MediaEmbeddingConnector\Db\AuditRepository;
 use OCA\MediaEmbeddingConnector\Db\IndexedFileRepository;
@@ -14,6 +12,7 @@ use OCA\MediaEmbeddingConnector\Db\IndexJobRepository;
 use OCA\MediaEmbeddingConnector\Db\SkipMarkerRepository;
 use OCA\MediaEmbeddingConnector\Exception\ExternalServiceException;
 use OCA\MediaEmbeddingConnector\Service\AppConfig;
+use OCA\MediaEmbeddingConnector\Service\BackfillScanner;
 use OCA\MediaEmbeddingConnector\Service\ElasticsearchClient;
 use OCA\MediaEmbeddingConnector\Service\ImageEmbeddingService;
 use OCA\MediaEmbeddingConnector\Service\IndexLifecycleService;
@@ -45,6 +44,7 @@ class AdminController extends Controller
         private MediaLabConnectionTestService $mediaLabTest,
         private ElasticsearchClient $elasticsearch,
         private IndexLifecycleService $indexLifecycle,
+        private BackfillScanner $backfillScanner,
         private IndexJobRepository $jobs,
         private IndexedFileRepository $indexedFiles,
         private AuditRepository $audit,
@@ -229,6 +229,7 @@ class AdminController extends Controller
             'success' => true,
             'indexing_enabled' => $this->config->isIndexingEnabled(),
             'lifecycle' => $this->indexLifecycle->getStatus(),
+            'backfill' => $this->backfillStatus(),
             'jobs' => $this->jobs->getStats(),
             'indexed_files' => $this->indexedFiles->count(),
             'skip_markers' => $this->skipMarkerRepository->getStats(),
@@ -288,7 +289,6 @@ class AdminController extends Controller
                 foreach ($this->jobs->getQueuedIds(10_000, IndexJobRepository::ACTION_DELETE) as $jobId) {
                     $this->jobList->add(ProcessIndexJob::class, ['job_id' => $jobId]);
                 }
-                $this->scheduleImageBatchWorkerIfQueued();
             }
             $this->recordAudit('indexing_toggled', 'app', Application::APP_ID, 'success', ['enabled' => $enabled]);
             return new DataResponse(['success' => true, 'indexing_enabled' => $enabled]);
@@ -306,18 +306,22 @@ class AdminController extends Controller
             ], 409);
         }
 
+        // A running scan keeps its cursor; restart=1 scans from the beginning.
+        // Unchanged, already indexed images are not queued again either way.
+        $restart = $this->request->getParam('restart', '0') === '1';
         $this->indexLifecycle->setBackfillPaused(false);
-        $this->jobList->add(DiscoverBackfillUsersJob::class, ['offset' => 0]);
-        $this->recordAudit('backfill_started', 'backfill', null, 'success');
-        return new DataResponse(['success' => true]);
+        $state = $this->backfillScanner->start($restart);
+        $this->recordAudit('backfill_started', 'backfill', null, 'success', ['restart' => $restart]);
+        return new DataResponse(['success' => true, 'backfill' => $state]);
     }
 
     public function setBackfillPaused(): DataResponse
     {
         $paused = $this->request->getParam('paused', '1') === '1';
         $this->indexLifecycle->setBackfillPaused($paused);
-        if (!$paused) {
-            $this->jobList->add(DiscoverBackfillUsersJob::class, ['offset' => 0]);
+        if (!$paused && $this->backfillScanner->getState()['status'] === BackfillScanner::STATUS_IDLE) {
+            // Scans paused by versions before 0.4.0 have no cursor yet.
+            $this->backfillScanner->start(false);
         }
         $this->recordAudit($paused ? 'backfill_paused' : 'backfill_resumed', 'backfill', null, 'success');
         return new DataResponse(['success' => true, 'paused' => $paused]);
@@ -327,33 +331,38 @@ class AdminController extends Controller
     {
         $errorCode = trim((string)$this->request->getParam('error_code', ''));
         $ids = $this->jobs->retryFailed($errorCode !== '' ? $errorCode : null);
-        $hasImageIndexJobs = false;
+        // Image jobs are picked up by the image worker; only deletes use per-job entries.
         foreach ($ids as $id) {
             $job = $this->jobs->findById($id);
             if (($job['action'] ?? IndexJobRepository::ACTION_INDEX) === IndexJobRepository::ACTION_DELETE) {
                 $this->jobList->add(ProcessIndexJob::class, ['job_id' => $id]);
-                continue;
             }
-            $hasImageIndexJobs = true;
-        }
-        if ($hasImageIndexJobs) {
-            $this->jobList->add(ProcessImageEmbeddingBatchJob::class, [
-                'batch_size' => $this->config->getImageBatchSize(),
-            ]);
         }
         $this->recordAudit('jobs_retried', 'job', $errorCode ?: null, 'success', ['count' => count($ids)]);
         return new DataResponse(['success' => true, 'retried' => count($ids)]);
     }
 
-    private function scheduleImageBatchWorkerIfQueued(): void
+    /**
+     * @return array<string, mixed>
+     */
+    private function backfillStatus(): array
     {
-        if ($this->jobs->getQueuedIds(1, IndexJobRepository::ACTION_INDEX) === []) {
-            return;
-        }
-
-        $this->jobList->add(ProcessImageEmbeddingBatchJob::class, [
-            'batch_size' => $this->config->getImageBatchSize(),
-        ]);
+        $state = $this->backfillScanner->getState();
+        return [
+            'status' => $state['status'],
+            'paused' => $this->indexLifecycle->isBackfillPaused(),
+            'started_at' => $state['started_at'],
+            'updated_at' => $state['updated_at'],
+            'completed_at' => $state['completed_at'],
+            'throttled_at' => $state['throttled_at'],
+            'queued_backfill' => $this->jobs->countQueuedBackfill(),
+            'max_queued' => $this->config->getBackfillMaxQueued(),
+            'user_offset' => $state['user_offset'],
+            'current_user' => $state['user_id'],
+            'counters' => $state['counters'],
+            'last_error' => $state['last_error'],
+            'skipped_roots' => $state['skipped_roots'],
+        ];
     }
 
     public function deleteIndex(): DataResponse

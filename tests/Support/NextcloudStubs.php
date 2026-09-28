@@ -8,6 +8,7 @@ namespace OCP\DB\QueryBuilder {
         {
             public const PARAM_INT = 1;
             public const PARAM_INT_ARRAY = 101;
+            public const PARAM_STR_ARRAY = 102;
         }
     }
 }
@@ -128,6 +129,10 @@ namespace OCP\BackgroundJob {
             public function add($job, $argument = null): void;
 
             public function scheduleAfter(string $job, int $runAfter, $argument = null): void;
+
+            public function remove($job, $argument = null): void;
+
+            public function has($job, $argument): bool;
         }
     }
 

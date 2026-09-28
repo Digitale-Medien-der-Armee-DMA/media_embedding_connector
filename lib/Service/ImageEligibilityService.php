@@ -47,6 +47,29 @@ class ImageEligibilityService
     }
 
     /**
+     * MIME types a backfill scan looks for in the file cache.
+     *
+     * @return list<string>
+     */
+    public function scanMimeTypes(): array
+    {
+        $disabled = array_map(self::class . '::normalizeMimeType', $this->disabledMimeTypes());
+        $mimeTypes = [];
+        foreach ($this->allowedMimeTypes() as $mimeType) {
+            $mimeType = self::normalizeMimeType($mimeType);
+            if ($mimeType !== '' && !in_array($mimeType, $disabled, true)) {
+                $mimeTypes[] = $mimeType;
+            }
+        }
+        foreach (self::MIME_ALIASES as $alias => $canonical) {
+            if (in_array($canonical, $mimeTypes, true)) {
+                $mimeTypes[] = $alias;
+            }
+        }
+        return array_values(array_unique($mimeTypes));
+    }
+
+    /**
      * @param array<string, mixed> $contract
      * @return array{allowed:bool, reason:?string}
      */

@@ -98,13 +98,27 @@ class FileIndexingService
             return ['status' => 'indexed', 'file_id' => $fileId];
         }
 
-        $activeContract = $this->indexLifecycle->getStatus()['active_contract'];
+        $lifecycle = $this->indexLifecycle->getStatus();
+        $activeContract = $lifecycle['active_contract'];
         if (($activeContract['model_fingerprint'] ?? null) !== ($contract['model_fingerprint'] ?? null)) {
             $this->config->setIndexingEnabled(false);
             throw new ExternalServiceException(
                 'Media Embedding Service model changed during indexing.',
                 'model_change_confirmation_required',
             );
+        }
+
+        // Duplicate or repeated jobs for unchanged content need no new embedding.
+        $etag = (string)$node->getEtag();
+        $fingerprint = (string)($contract['model_fingerprint'] ?? '');
+        $writeIndex = (string)($lifecycle['write_index'] ?? '');
+        $indexed = $this->indexedFiles->findByFileIds([$fileId])[$fileId] ?? null;
+        if (IndexFreshness::isCurrent($indexed, null, $etag, $fingerprint, $writeIndex)) {
+            return ['status' => 'indexed', 'file_id' => $fileId, 'reason' => 'unchanged'];
+        }
+        $skip = $this->skipMarkers->findByFileIds([$fileId])[$fileId] ?? null;
+        if (IndexFreshness::isCurrent(null, $skip, $etag, $fingerprint, $writeIndex)) {
+            return ['status' => 'skipped', 'file_id' => $fileId, 'reason' => (string)($skip['reason'] ?? 'unchanged')];
         }
 
         $tmpPath = tempnam(sys_get_temp_dir(), 'nc-medialab-');

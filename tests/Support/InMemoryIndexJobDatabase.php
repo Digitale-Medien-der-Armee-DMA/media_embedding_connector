@@ -119,6 +119,12 @@ class InMemoryIndexJobQueryBuilder
         return $this;
     }
 
+    public function delete(string $table): self
+    {
+        $this->operation = 'delete';
+        return $this;
+    }
+
     public function insert(string $table): self
     {
         $this->operation = 'insert';
@@ -227,6 +233,15 @@ class InMemoryIndexJobQueryBuilder
         }
 
         $affected = 0;
+        if ($this->operation === 'delete') {
+            foreach ($this->db->rows as $id => $row) {
+                if ($this->matches($row)) {
+                    unset($this->db->rows[$id]);
+                    ++$affected;
+                }
+            }
+            return $affected;
+        }
         foreach ($this->db->rows as $id => $row) {
             if ($this->matches($row)) {
                 foreach ($this->values as $field => $value) {
@@ -257,6 +272,9 @@ class InMemoryIndexJobQueryBuilder
                 return false;
             }
             if ($operator === '<' && $actual >= $value) {
+                return false;
+            }
+            if ($operator === '>' && $actual <= $value) {
                 return false;
             }
             if ($operator === 'in' && (!is_array($value) || !in_array($actual, $value, true))) {
@@ -291,6 +309,14 @@ class InMemoryIndexJobExpression
     public function lt(string $field, mixed $value): array
     {
         return [$field, '<', $value];
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: mixed}
+     */
+    public function gt(string $field, mixed $value): array
+    {
+        return [$field, '>', $value];
     }
 
     /**

@@ -4,43 +4,35 @@ declare(strict_types=1);
 
 namespace OCA\MediaEmbeddingConnector\Tests\Unit;
 
-use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessImageEmbeddingBatchJob;
 use OCA\MediaEmbeddingConnector\Db\IndexJobRepository;
 use OCA\MediaEmbeddingConnector\Exception\ExternalServiceException;
 use OCA\MediaEmbeddingConnector\Service\AppConfig;
 use OCA\MediaEmbeddingConnector\Service\ImageEmbeddingBatchService;
-use OCP\AppFramework\Utility\ITimeFactory;
-use OCP\BackgroundJob\IJobList;
+use OCA\MediaEmbeddingConnector\Service\ImageEmbeddingQueueWorker;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
-class ProcessImageEmbeddingBatchJobTest extends TestCase
+class ImageEmbeddingQueueWorkerTest extends TestCase
 {
     private IndexJobRepository&MockObject $jobs;
     private ImageEmbeddingBatchService&MockObject $batchService;
     private AppConfig&MockObject $config;
-    private IJobList&MockObject $jobList;
-    private LoggerInterface&MockObject $logger;
-    private TestableProcessImageEmbeddingBatchJob $job;
+    private ImageEmbeddingQueueWorker $worker;
 
     protected function setUp(): void
     {
         $this->jobs = $this->createMock(IndexJobRepository::class);
         $this->batchService = $this->createMock(ImageEmbeddingBatchService::class);
         $this->config = $this->createMock(AppConfig::class);
-        $this->jobList = $this->createMock(IJobList::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
         $this->config->method('isIndexingEnabled')->willReturn(true);
         $this->config->method('getImageBatchSize')->willReturn(8);
         $this->config->method('getImageBatchMaxParallelRequestsPerToken')->willReturn(4);
-        $this->job = new TestableProcessImageEmbeddingBatchJob(
-            $this->createStub(ITimeFactory::class),
+        $this->worker = new ImageEmbeddingQueueWorker(
             $this->jobs,
             $this->batchService,
             $this->config,
-            $this->jobList,
-            $this->logger,
+            $this->createMock(LoggerInterface::class),
         );
     }
 
@@ -50,7 +42,7 @@ class ProcessImageEmbeddingBatchJobTest extends TestCase
             ['id' => 10, 'attempts' => 0],
             ['id' => 20, 'attempts' => 1],
         ];
-        $this->jobs->method('claimImageEmbeddingBatch')->willReturn($claimed);
+        $this->jobs->method('claimImageEmbeddingBatch')->with(8, 32)->willReturn($claimed);
         $this->batchService->method('process')->with($claimed)->willThrowException(
             new ExternalServiceException('MediaLab unavailable.', 'medialab_unreachable', true, null, 503),
         );
@@ -68,12 +60,10 @@ class ProcessImageEmbeddingBatchJobTest extends TestCase
                 $retryCalls[] = compact('jobId', 'attempts', 'nextAttemptAt', 'error', 'statusCode');
             });
         $this->jobs->expects(self::never())->method('markFailed');
-        $this->jobList->expects(self::once())->method('scheduleAfter');
 
         $before = time();
-        $this->job->executeForTest(['batch_size' => 8]);
+        self::assertSame(2, $this->worker->processNextBatch());
 
-        self::assertCount(2, $retryCalls);
         self::assertSame(10, $retryCalls[0]['jobId']);
         self::assertSame(1, $retryCalls[0]['attempts']);
         self::assertGreaterThanOrEqual($before + 60, $retryCalls[0]['nextAttemptAt']);
@@ -82,8 +72,6 @@ class ProcessImageEmbeddingBatchJobTest extends TestCase
         self::assertSame(20, $retryCalls[1]['jobId']);
         self::assertSame(2, $retryCalls[1]['attempts']);
         self::assertGreaterThanOrEqual($before + 300, $retryCalls[1]['nextAttemptAt']);
-        self::assertSame('medialab_unreachable', $retryCalls[1]['error']);
-        self::assertSame(503, $retryCalls[1]['statusCode']);
     }
 
     public function testUnexpectedBatchThrowableFailsClaimedJobs(): void
@@ -102,24 +90,59 @@ class ProcessImageEmbeddingBatchJobTest extends TestCase
                 $failedCalls[] = compact('jobId', 'error');
             });
         $this->jobs->expects(self::never())->method('markRetry');
-        $this->jobList->expects(self::never())->method('scheduleAfter');
 
-        $this->job->executeForTest(['batch_size' => 8]);
+        $this->worker->processNextBatch();
 
         self::assertSame([
             ['jobId' => 10, 'error' => 'medialab_batch_failed'],
             ['jobId' => 20, 'error' => 'medialab_batch_failed'],
         ], $failedCalls);
     }
-}
 
-class TestableProcessImageEmbeddingBatchJob extends ProcessImageEmbeddingBatchJob
-{
-    /**
-     * @param array<string, int> $argument
-     */
-    public function executeForTest(array $argument): void
+    public function testResultsAreMappedToJobStatuses(): void
     {
-        $this->run($argument);
+        $claimed = [
+            ['id' => 1, 'attempts' => 0],
+            ['id' => 2, 'attempts' => 0],
+            ['id' => 3, 'attempts' => 0],
+            ['id' => 4, 'attempts' => 0],
+        ];
+        $this->jobs->method('claimImageEmbeddingBatch')->willReturn($claimed);
+        $this->batchService->method('process')->willReturn([
+            1 => ['status' => IndexJobRepository::STATUS_INDEXED],
+            2 => ['status' => IndexJobRepository::STATUS_SKIPPED],
+            3 => ['status' => 'retry', 'error' => 'rate_limited', 'status_code' => 429],
+        ]);
+
+        $completed = [];
+        $this->jobs->method('markComplete')->willReturnCallback(static function (int $id, string $status) use (&$completed): void {
+            $completed[$id] = $status;
+        });
+        $this->jobs->expects(self::once())->method('markRetry')->with(3, 1, self::anything(), 'rate_limited', 429);
+        $this->jobs->expects(self::once())->method('markFailed')->with(4, 'missing_batch_result', null);
+
+        $this->worker->processNextBatch();
+
+        self::assertSame([1 => IndexJobRepository::STATUS_INDEXED, 2 => IndexJobRepository::STATUS_SKIPPED], $completed);
+    }
+
+    public function testDrainKeepsClaimingUntilQueueIsEmpty(): void
+    {
+        $this->jobs->expects(self::exactly(3))
+            ->method('claimImageEmbeddingBatch')
+            ->willReturnOnConsecutiveCalls(
+                [['id' => 1, 'attempts' => 0], ['id' => 2, 'attempts' => 0]],
+                [['id' => 3, 'attempts' => 0]],
+                [],
+            );
+        $this->batchService->method('process')->willReturnCallback(static function (array $jobs): array {
+            $results = [];
+            foreach ($jobs as $job) {
+                $results[(int)$job['id']] = ['status' => IndexJobRepository::STATUS_INDEXED];
+            }
+            return $results;
+        });
+
+        self::assertSame(['batches' => 2, 'items' => 3], $this->worker->drain(60));
     }
 }

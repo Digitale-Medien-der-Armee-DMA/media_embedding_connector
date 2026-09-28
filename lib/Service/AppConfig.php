@@ -26,6 +26,9 @@ class AppConfig
     public const KEY_ALLOW_PRIVATE_NETWORKS = 'allow_private_networks';
     public const KEY_ALLOWED_IMAGE_MIME_TYPES = 'allowed_image_mime_types';
     public const KEY_DISABLED_IMAGE_MIME_TYPES = 'disabled_image_mime_types';
+    public const KEY_WORKER_TIME_BUDGET = 'worker_time_budget';
+    public const KEY_BACKFILL_MAX_QUEUED = 'backfill_max_queued';
+    public const KEY_JOB_RETENTION_DAYS = 'job_retention_days';
 
     public const ELASTICSEARCH_SOURCE_INHERITED = 'inherited';
     public const ELASTICSEARCH_SOURCE_CUSTOM = 'custom';
@@ -34,6 +37,10 @@ class AppConfig
     public const DEFAULT_IMAGE_BATCH_MAX_PARALLEL_REQUESTS_PER_TOKEN = 8;
     public const DEFAULT_IMAGE_BATCH_REQUEST_TIMEOUT = 120;
     public const DEFAULT_INDEX_ALIAS = 'nc_media_embeddings_current';
+    public const DEFAULT_WORKER_TIME_BUDGET = 240;
+    public const DEFAULT_BACKFILL_MAX_QUEUED = 10_000;
+    public const DEFAULT_JOB_RETENTION_DAYS = 14;
+    public const MAX_IMAGE_WORKER_SLOTS = 16;
     public const MEDIALAB_API_BASE_PATH = '/api/external/v1';
 
     /**
@@ -180,6 +187,61 @@ class AppConfig
     public function setImageBatchRequestTimeout(int $timeoutSeconds): void
     {
         $this->config->setValueInt(Application::APP_ID, self::KEY_IMAGE_BATCH_REQUEST_TIMEOUT, $timeoutSeconds);
+    }
+
+    /**
+     * Number of image worker background jobs that may drain the queue in
+     * parallel. It follows the per-token request limit, capped for safety.
+     */
+    public function getImageWorkerSlots(): int
+    {
+        return max(1, min(self::MAX_IMAGE_WORKER_SLOTS, $this->getImageBatchMaxParallelRequestsPerToken()));
+    }
+
+    /**
+     * Seconds one cron run of an image worker keeps claiming batches.
+     */
+    public function getWorkerTimeBudget(): int
+    {
+        return max(30, min(3600, $this->config->getValueInt(
+            Application::APP_ID,
+            self::KEY_WORKER_TIME_BUDGET,
+            self::DEFAULT_WORKER_TIME_BUDGET,
+        )));
+    }
+
+    /**
+     * High-water mark for queued backfill images. The scanner pauses while
+     * more backfill images than this are waiting.
+     */
+    public function getBackfillMaxQueued(): int
+    {
+        return max(100, $this->config->getValueInt(
+            Application::APP_ID,
+            self::KEY_BACKFILL_MAX_QUEUED,
+            self::DEFAULT_BACKFILL_MAX_QUEUED,
+        ));
+    }
+
+    /**
+     * Days that indexed and skipped job rows are kept before cleanup.
+     */
+    public function getJobRetentionDays(): int
+    {
+        return max(1, $this->config->getValueInt(
+            Application::APP_ID,
+            self::KEY_JOB_RETENTION_DAYS,
+            self::DEFAULT_JOB_RETENTION_DAYS,
+        ));
+    }
+
+    /**
+     * Drops cached app config values so a long-running process sees changes
+     * an administrator made after it started.
+     */
+    public function reload(): void
+    {
+        $this->config->clearCache();
     }
 
     public function getIndexAlias(): string
