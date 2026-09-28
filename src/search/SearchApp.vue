@@ -107,7 +107,7 @@
 
 				<div ref="sentinel" class="mec-sentinel" aria-hidden="true" />
 
-				<div v-if="hasMore && !autoScroll" class="mec-more">
+				<div v-if="hasMore" class="mec-more">
 					<NcButton :disabled="loading" @click="loadMore">
 						{{ t('Load more') }}
 					</NcButton>
@@ -118,7 +118,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import NcActionButton from '@nextcloud/vue/components/NcActionButton';
 import NcAppContent from '@nextcloud/vue/components/NcAppContent';
 import NcAppNavigation from '@nextcloud/vue/components/NcAppNavigation';
@@ -146,6 +146,7 @@ const HISTORY_KEY = 'media_embedding_connector:history';
 const SESSION_KEY = 'media_embedding_connector:last-search';
 const HISTORY_LIMIT = 10;
 const PAGE_SIZE = 48;
+const AUTO_LOAD_MARGIN = 400;
 // Base64 expands the file by one third; leave room in sessionStorage for Nextcloud.
 const SESSION_IMAGE_LIMIT = 3 * 1024 * 1024;
 
@@ -166,13 +167,12 @@ const content = ref(null);
 const sentinel = ref(null);
 const imageInput = ref(null);
 
-/* The sentinel drives paging; the button is the fallback without observers. */
-const autoScroll = 'IntersectionObserver' in window;
-
 let current = { mode: 'text', query: '', fileId: '', name: '', file: null, offset: 0 };
 let requestSequence = 0;
 let dropTimer = null;
 let observer = null;
+let autoLoadFrame = null;
+let autoLoadCheckPending = false;
 let previewUrl = '';
 
 const emptyState = computed(() => {
@@ -332,7 +332,8 @@ async function load(append) {
 		results.value = [];
 	}
 
-	const offset = append ? String(current.offset) : '0';
+	const requestedOffset = append ? current.offset : 0;
+	const offset = String(requestedOffset);
 	let url = props.state.search_url;
 	let body;
 
@@ -357,10 +358,15 @@ async function load(append) {
 		if (!ok) {
 			throw new Error(payload.error || 'search_failed');
 		}
-		results.value = append ? [...results.value, ...payload.results] : payload.results;
-		current.offset = payload.next_offset ?? 0;
-		hasMore.value = Boolean(payload.has_more);
-		if (!append && payload.results.length === 0) {
+		const page = Array.isArray(payload.results) ? payload.results : [];
+		const nextOffset = Number(payload.next_offset);
+		results.value = append ? [...results.value, ...page] : page;
+		current.offset = Number.isFinite(nextOffset) ? nextOffset : 0;
+		hasMore.value = Boolean(payload.has_more)
+			&& page.length > 0
+			&& Number.isFinite(nextOffset)
+			&& nextOffset > requestedOffset;
+		if (!append && page.length === 0) {
 			errorMessage.value = t('No accessible images matched this search.');
 		}
 	} catch (error) {
@@ -375,6 +381,7 @@ async function load(append) {
 	} finally {
 		if (requestId === requestSequence) {
 			loading.value = false;
+			scheduleAutoLoadCheck();
 		}
 	}
 }
@@ -384,6 +391,40 @@ function loadMore() {
 	if (hasMore.value && !loading.value) {
 		load(true);
 	}
+}
+
+/**
+ * Whether the paging sentinel is inside the observer's effective viewport.
+ * Checking the geometry after rendering recovers intersections that happened
+ * while the preceding request was still marked as loading.
+ *
+ * @return {boolean}
+ */
+function isSentinelNearViewport() {
+	if (!content.value || !sentinel.value) {
+		return false;
+	}
+	const root = content.value.getBoundingClientRect();
+	const target = sentinel.value.getBoundingClientRect();
+	return target.top <= root.bottom + AUTO_LOAD_MARGIN
+		&& target.bottom >= root.top - AUTO_LOAD_MARGIN;
+}
+
+/** Recheck automatic paging after Vue and the result grid have laid out. */
+function scheduleAutoLoadCheck() {
+	if (!observer || autoLoadCheckPending) {
+		return;
+	}
+	autoLoadCheckPending = true;
+	nextTick(() => {
+		autoLoadFrame = window.requestAnimationFrame(() => {
+			autoLoadFrame = null;
+			autoLoadCheckPending = false;
+			if (hasMore.value && !loading.value && isSentinelNearViewport()) {
+				loadMore();
+			}
+		});
+	});
 }
 
 /** Scroll the result area back to the top for a new search. */
@@ -643,14 +684,14 @@ function onDrop(event) {
 }
 
 onMounted(() => {
-	if (autoScroll && sentinel.value) {
+	if (typeof window.IntersectionObserver === 'function' && sentinel.value) {
 		observer = new IntersectionObserver((entries) => {
 			for (const entry of entries) {
 				if (entry.isIntersecting) {
-					loadMore();
+					scheduleAutoLoadCheck();
 				}
 			}
-		}, { root: content.value, rootMargin: '400px' });
+		}, { root: content.value, rootMargin: `${AUTO_LOAD_MARGIN}px` });
 		observer.observe(sentinel.value);
 	}
 
@@ -685,6 +726,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
 	observer?.disconnect();
+	if (autoLoadFrame !== null) {
+		window.cancelAnimationFrame(autoLoadFrame);
+	}
 	window.clearTimeout(dropTimer);
 	releasePreview();
 });

@@ -11,6 +11,7 @@ class ElasticsearchClient
 {
     public const MINIMUM_VERSION = '8.12.0';
     private const MANAGED_INDEX_PREFIX = 'nc_media_embeddings_';
+    private const MAX_KNN_RESULTS = 5_500;
 
     public function __construct(
         private ConnectionConfigService $connectionConfig,
@@ -132,7 +133,7 @@ class ElasticsearchClient
         ?string $excludeFileId = null,
     ): array {
         $this->assertManagedIndexName($indexOrAlias, true);
-        $limit = max(1, min(500, $limit));
+        $limit = max(1, min(self::MAX_KNN_RESULTS, $limit));
         $k = $excludeFileId === null ? $limit : $limit + 1;
         $response = $this->request('POST', '/' . rawurlencode($indexOrAlias) . '/_search', [
             'size' => $k,
@@ -141,7 +142,7 @@ class ElasticsearchClient
                 'field' => 'image_vector',
                 'query_vector' => $vector,
                 'k' => $k,
-                'num_candidates' => max(100, min(10_000, $k * 10)),
+                'num_candidates' => max(100, min(10_000, $k * 2)),
             ],
         ]);
 

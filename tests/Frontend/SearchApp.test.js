@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SearchApp from '../../src/search/SearchApp.vue';
 import { post } from '../../src/api.js';
@@ -66,6 +66,15 @@ const EmptyContentStub = defineComponent({
 	template: '<div data-test="empty-content">{{ name }} {{ description }}<slot name="icon" /></div>',
 });
 
+const ResultsGridStub = defineComponent({
+	name: 'ResultsGrid',
+	props: {
+		results: { type: Array, default: () => [] },
+	},
+	emits: ['similar', 'open'],
+	template: '<section data-test="results-grid" />',
+});
+
 const state = {
 	indexing_enabled: true,
 	image_accept: 'image/jpeg,image/png,image/webp',
@@ -89,7 +98,7 @@ function mountSearch(overrides = {}) {
 				NcAppNavigationCaption: ContentStub,
 				NcAppNavigationItem: ContentStub,
 				NcLoadingIcon: true,
-				ResultsGrid: true,
+				ResultsGrid: ResultsGridStub,
 				CloseIcon: true,
 				DeleteIcon: true,
 				HistoryIcon: true,
@@ -120,6 +129,11 @@ describe('SearchApp', () => {
 			ok: true,
 			payload: { results: [], has_more: false, next_offset: 0 },
 		});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 	});
 
 	it('renders the search text as a placeholder without the removed permanent notice', () => {
@@ -237,5 +251,124 @@ describe('SearchApp', () => {
 		expect(post).not.toHaveBeenCalled();
 		expect(wrapper.get('[data-test="empty-content"]').text())
 			.toContain('This image format is not supported.');
+	});
+
+	it('keeps a manual paging fallback and loads the second result page', async () => {
+		const firstPage = Array.from({ length: 48 }, (_, index) => ({
+			file_id: String(index + 1),
+			name: `image-${index + 1}.jpg`,
+		}));
+		const secondPage = [{ file_id: '49', name: 'image-49.jpg' }];
+		post
+			.mockResolvedValueOnce({
+				ok: true,
+				payload: { results: firstPage, has_more: true, next_offset: 48 },
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				payload: { results: secondPage, has_more: false, next_offset: null },
+			});
+
+		const wrapper = mountSearch();
+		await wrapper.get('input[type="search"]').setValue('mountains');
+		await wrapper.get('form.mec-search').trigger('submit');
+		await flushPromises();
+
+		expect(wrapper.get('.mec-more button').text()).toContain('Load more');
+		await wrapper.get('.mec-more button').trigger('click');
+		await flushPromises();
+
+		expect(post).toHaveBeenCalledTimes(2);
+		expect(post.mock.calls[1][1].get('offset')).toBe('48');
+		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(49);
+		expect(wrapper.find('.mec-more').exists()).toBe(false);
+	});
+
+	it('continues paging beyond 500 displayed results', async () => {
+		for (let page = 0; page < 11; page += 1) {
+			const offset = page * 48;
+			post.mockResolvedValueOnce({
+				ok: true,
+				payload: {
+					results: Array.from({ length: 48 }, (_, index) => ({
+						file_id: String(offset + index + 1),
+						name: `image-${offset + index + 1}.jpg`,
+					})),
+					has_more: page < 10,
+					next_offset: page < 10 ? offset + 48 : null,
+				},
+			});
+		}
+
+		const wrapper = mountSearch();
+		await wrapper.get('input[type="search"]').setValue('landscape');
+		await wrapper.get('form.mec-search').trigger('submit');
+		await flushPromises();
+		for (let page = 1; page < 11; page += 1) {
+			await wrapper.get('.mec-more button').trigger('click');
+			await flushPromises();
+		}
+
+		expect(post).toHaveBeenCalledTimes(11);
+		expect(post.mock.calls[10][1].get('offset')).toBe('480');
+		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(528);
+	});
+
+	it('rechecks an intersection that occurred while the first page was loading', async () => {
+		let intersectionCallback;
+		const frames = [];
+		vi.stubGlobal('IntersectionObserver', class {
+			constructor(callback) {
+				intersectionCallback = callback;
+			}
+
+			observe() {}
+			disconnect() {}
+		});
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+			frames.push(callback);
+			return frames.length;
+		});
+
+		let resolveFirstPage;
+		post
+			.mockImplementationOnce(() => new Promise((resolve) => {
+				resolveFirstPage = resolve;
+			}))
+			.mockResolvedValueOnce({
+				ok: true,
+				payload: {
+					results: [{ file_id: '49', name: 'image-49.jpg' }],
+					has_more: false,
+					next_offset: null,
+				},
+			});
+
+		const wrapper = mountSearch();
+		await wrapper.get('input[type="search"]').setValue('forest');
+		await wrapper.get('form.mec-search').trigger('submit');
+		intersectionCallback([{ isIntersecting: true }]);
+		await flushPromises();
+		frames.shift()();
+		expect(post).toHaveBeenCalledTimes(1);
+
+		resolveFirstPage({
+			ok: true,
+			payload: {
+				results: Array.from({ length: 48 }, (_, index) => ({
+					file_id: String(index + 1),
+					name: `image-${index + 1}.jpg`,
+				})),
+				has_more: true,
+				next_offset: 48,
+			},
+		});
+		await flushPromises();
+		frames.shift()();
+		await flushPromises();
+
+		expect(post).toHaveBeenCalledTimes(2);
+		expect(post.mock.calls[1][1].get('offset')).toBe('48');
+		wrapper.unmount();
 	});
 });

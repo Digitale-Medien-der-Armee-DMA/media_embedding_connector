@@ -11,6 +11,8 @@ use OCP\IURLGenerator;
 
 class ImageSearchService
 {
+    private const MAX_SEARCH_CANDIDATES = 5_500;
+
     public function __construct(
         private MediaLabContractService $contractService,
         private MediaLabClient $mediaLab,
@@ -103,7 +105,7 @@ class ImageSearchService
     ): array {
         $limit = max(1, min(100, $limit));
         $offset = max(0, min(1000, $offset));
-        $candidateLimit = min(500, max(($offset + $limit) * 5, 100));
+        $candidateLimit = min(self::MAX_SEARCH_CANDIDATES, max(($offset + $limit) * 5, 100));
         $candidates = $this->elasticsearch->search(
             $this->indexLifecycle->getSearchAlias(),
             $vector,
