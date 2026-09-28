@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-09-28
+
 - Keep search pagination usable in large browser windows by rechecking the
   infinite-scroll sentinel after each request and always showing a manual
   **Load more** fallback.
