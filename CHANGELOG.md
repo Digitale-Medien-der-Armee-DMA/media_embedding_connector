@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 - 2026-09-28
+
+- Republish the 0.4.0 changes as a new release. No functional changes.
+
 ## 0.4.0 - 2026-09-28
 
 - Process queued images with a time-budgeted image worker instead of adding a
