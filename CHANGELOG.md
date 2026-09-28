@@ -5,9 +5,9 @@
 - Keep search pagination usable in large browser windows by rechecking the
   infinite-scroll sentinel after each request and always showing a manual
   **Load more** fallback.
-- Allow search pagination beyond the first 500 vector candidates and reduce
-  Elasticsearch candidate exploration while preserving result overfetch for
-  Nextcloud permission checks.
+- Allow search pagination beyond the first 500 vector candidates and use a
+  fixed baseline of 2,000 Elasticsearch candidates for consistent result
+  quality while preserving result overfetch for Nextcloud permission checks.
 
 ## 0.4.1 - 2026-09-28
 

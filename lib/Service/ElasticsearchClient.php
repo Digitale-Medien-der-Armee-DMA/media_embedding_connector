@@ -12,6 +12,7 @@ class ElasticsearchClient
     public const MINIMUM_VERSION = '8.12.0';
     private const MANAGED_INDEX_PREFIX = 'nc_media_embeddings_';
     private const MAX_KNN_RESULTS = 5_500;
+    private const NUM_KNN_CANDIDATES = 2_000;
 
     public function __construct(
         private ConnectionConfigService $connectionConfig,
@@ -142,7 +143,9 @@ class ElasticsearchClient
                 'field' => 'image_vector',
                 'query_vector' => $vector,
                 'k' => $k,
-                'num_candidates' => max(100, min(10_000, $k * 2)),
+                // Elasticsearch requires num_candidates >= k. The fixed
+                // quality budget therefore only grows for deep result pages.
+                'num_candidates' => max(self::NUM_KNN_CANDIDATES, $k),
             ],
         ]);
 
