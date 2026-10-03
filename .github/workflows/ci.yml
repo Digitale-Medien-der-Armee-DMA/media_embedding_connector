@@ -172,8 +172,11 @@ jobs:
           set -euo pipefail
           ready=false
           for attempt in $(seq 1 90); do
-            if docker exec -u www-data connector-nextcloud php occ status --output=json \
-                2>/dev/null | jq -e '.installed == true' >/dev/null; then
+            # The installed flag can appear while maintenance:install still
+            # holds SQLite locks. Apache starts only after the entrypoint ends.
+            if docker exec connector-nextcloud curl --fail --silent --max-time 2 \
+                http://127.0.0.1/status.php 2>/dev/null \
+                | jq -e '.installed == true and .maintenance == false' >/dev/null 2>&1; then
               ready=true
               break
             fi
@@ -188,6 +191,10 @@ jobs:
           docker exec -u www-data connector-nextcloud php occ media_embedding_connector:worker --help
           docker exec -u www-data connector-nextcloud \
             php custom_apps/media_embedding_connector/tests/Integration/nextcloud_contract.php
+
+      - name: Show Nextcloud startup logs on failure
+        if: failure()
+        run: docker logs connector-nextcloud
 
       - name: Stop isolated Nextcloud
         if: always()
