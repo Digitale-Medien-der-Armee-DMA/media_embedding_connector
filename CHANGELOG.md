@@ -2,6 +2,8 @@
 
 ## 0.4.3 - 2026-10-03
 
+- Update all locked brace-expansion copies and DOMPurify to patched releases and
+  rebuild the shipped frontend bundles.
 - Support Nextcloud 33–35, including API compatibility checks and a Nextcloud 35
   runtime contract test. Drop support for Nextcloud 32. Nextcloud 35 requires PHP
   8.3 or newer; older supported Nextcloud versions can still use PHP 8.2.
