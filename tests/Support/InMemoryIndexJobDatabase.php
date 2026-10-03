@@ -9,6 +9,11 @@ use OCP\IDBConnection;
 
 class InMemoryIndexJobDatabase implements IDBConnection
 {
+    public function escapeLikeParameter($param): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string)$param);
+    }
+
     /** @var array<int, array<string, mixed>> */
     public array $rows = [];
     public int $lockCount = 0;

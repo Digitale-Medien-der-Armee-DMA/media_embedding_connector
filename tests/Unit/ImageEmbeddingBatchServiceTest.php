@@ -50,6 +50,25 @@ class ImageEmbeddingBatchServiceTest extends TestCase
         self::assertSame(IndexJobRepository::STATUS_INDEXED, $result[30]['status']);
     }
 
+    public function testEnvelopeModelIdentityIsPreservedForTheIndexGuard(): void
+    {
+        [$service, $contract, $client, $fileIndexing] = $this->service();
+        $jobs = [$this->job(10), $this->job(20)];
+        $contract->method('getDefaultModelContract')->willReturn($this->contract());
+        $fileIndexing->method('prepareImageForEmbedding')->willReturnOnConsecutiveCalls($this->prepared($jobs[0]), $this->prepared($jobs[1]));
+        $client->method('embedImageFiles')->willReturn([
+            'model_id' => 'clip', 'model_fingerprint' => 'shared-fp',
+            'results' => [['index' => 0, 'image_vector' => [0.1]], ['index' => 1, 'image_vector' => [0.2], 'model_fingerprint' => 'item-fp']],
+        ]);
+        $fileIndexing->expects(self::exactly(2))->method('indexPreparedImage')
+            ->willReturnCallback(static function ($prepared, $response): string {
+                self::assertSame('clip', $response['model_id']);
+                self::assertSame($response['index'] === 0 ? 'shared-fp' : 'item-fp', $response['model_fingerprint']);
+                return IndexJobRepository::STATUS_INDEXED;
+            });
+        self::assertCount(2, $service->process($jobs));
+    }
+
     public function testBatchFailedItemOnlyMarksThatItemSkipped(): void
     {
         [$service, $contract, $client, $fileIndexing] = $this->service();

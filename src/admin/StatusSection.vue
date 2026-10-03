@@ -1,10 +1,20 @@
 <template>
 	<NcSettingsSection :name="t('Operational status')">
 		<div class="mec-metrics">
-			<div v-for="metric in metrics" :key="metric.label" class="mec-metric">
-				<span class="mec-metric__value">{{ metric.value }}</span>
-				<span class="mec-metric__label">{{ metric.label }}</span>
-			</div>
+			<template v-for="metric in metrics" :key="metric.label">
+				<button v-if="metric.status" type="button"
+					class="mec-metric mec-metric--download"
+					:title="t('Download file list (JSON)')"
+					@click="$emit('download-status', metric.status)">
+					<span class="mec-metric__value">{{ metric.value }}</span>
+					<span class="mec-metric__label">{{ metric.label }}</span>
+					<span class="mec-metric__download">{{ t('Download file list (JSON)') }}</span>
+				</button>
+				<div v-else class="mec-metric">
+					<span class="mec-metric__value">{{ metric.value }}</span>
+					<span class="mec-metric__label">{{ metric.label }}</span>
+				</div>
+			</template>
 		</div>
 
 		<div class="mec-row">
@@ -83,17 +93,17 @@ const props = defineProps({
 	loading: { type: Boolean, default: false },
 });
 
-defineEmits(['refresh', 'delete-index']);
+defineEmits(['refresh', 'delete-index', 'download-status']);
 
 const metrics = computed(() => {
 	const jobs = props.status.jobs ?? {};
 	return [
 		{ label: t('Indexing'), value: props.status.indexing_enabled ? t('Enabled') : t('Disabled') },
 		{ label: t('Indexed files'), value: props.status.indexed_files ?? 0 },
-		{ label: t('Queued jobs'), value: jobs.queued ?? 0 },
-		{ label: t('Running jobs'), value: jobs.running ?? 0 },
-		{ label: t('Failed jobs'), value: jobs.failed ?? 0 },
-		{ label: t('Skipped files'), value: props.status.skip_markers?.total ?? 0 },
+		{ label: t('Queued jobs'), value: jobs.queued ?? 0, status: 'queued' },
+		{ label: t('Running jobs'), value: jobs.running ?? 0, status: 'running' },
+		{ label: t('Failed jobs'), value: jobs.failed ?? 0, status: 'failed' },
+		{ label: t('Skipped files'), value: props.status.skip_markers?.total ?? 0, status: 'skipped' },
 	];
 });
 

@@ -204,6 +204,12 @@ class ImageEmbeddingBatchService
             }
             $job = (array)$chunk[$index]['job'];
             $seen[$index] = true;
+            // Some API versions put the shared model identity on the envelope.
+            // Explicit per-item identities take precedence and remain checked.
+            $item += array_intersect_key($response, array_flip([
+                'model_id', 'model_name', 'model_version', 'model_fingerprint',
+                'embedding_dim', 'normalized', 'similarity', 'request_id',
+            ]));
             $results[(int)$job['id']] = [
                 'status' => $this->fileIndexing->indexPreparedImage($chunk[$index], $item),
             ];

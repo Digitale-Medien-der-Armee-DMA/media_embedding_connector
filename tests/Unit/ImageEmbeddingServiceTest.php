@@ -78,6 +78,19 @@ class ImageEmbeddingServiceTest extends TestCase
         }
     }
 
+    public function testSearchUploadRejectsAResponseFromAnotherModel(): void
+    {
+        $client = $this->createMock(MediaLabClient::class);
+        $client->method('embedImageFile')->willReturn(['image_vector' => [1.0, 0.0], 'model_id' => 'clip', 'model_fingerprint' => 'new']);
+        $service = $this->service($client, 'image/png');
+        $this->expectException(ExternalServiceException::class);
+        $this->expectExceptionMessage('Query image model differs from the search index.');
+        $service->embedUploadedFileForSearch(['tmp_name' => $this->imagePath], [
+            'model_id' => 'clip', 'model_fingerprint' => 'old', 'embedding_dim' => 2, 'normalized' => true,
+            'image_input' => ['supported_image_mime_types' => ['image/png'], 'max_upload_mb' => 10, 'max_pixels' => 1000],
+        ]);
+    }
+
     private function service(MediaLabClient $client, string $detectedMime): ImageEmbeddingService
     {
         $contracts = $this->createMock(MediaLabContractService::class);

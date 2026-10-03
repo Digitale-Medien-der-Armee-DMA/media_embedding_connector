@@ -7,6 +7,7 @@ namespace OCA\MediaEmbeddingConnector\Migration;
 use OCA\MediaEmbeddingConnector\AppInfo\Application;
 use OCA\MediaEmbeddingConnector\BackgroundJob\BackfillScanJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\CleanupIndexJobsJob;
+use OCA\MediaEmbeddingConnector\BackgroundJob\CleanupSearchSessionsJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\DiscoverBackfillUsersJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ImageEmbeddingWorkerJob;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessImageEmbeddingBatchJob;
@@ -37,6 +38,7 @@ class UninstallCleanup implements IRepairStep
      * @var list<string>
      */
     private const TABLES = [
+        'media_embed_search',
         'media_embed_audit',
         'media_embed_state',
         'media_embed_skips',
@@ -52,6 +54,7 @@ class UninstallCleanup implements IRepairStep
         ImageEmbeddingWorkerJob::class,
         BackfillScanJob::class,
         CleanupIndexJobsJob::class,
+        CleanupSearchSessionsJob::class,
         ProcessImageEmbeddingBatchJob::class,
         DiscoverBackfillUsersJob::class,
         ScanBackfillFolderJob::class,

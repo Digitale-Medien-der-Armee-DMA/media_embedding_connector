@@ -164,6 +164,7 @@ class FileIndexingService
             'size_bytes' => is_int($sizeBytes) ? $sizeBytes : 0,
             'pixel_count' => $pixelCount ?? 0,
             'contract' => $contract,
+            'write_index' => $writeIndex,
         ];
     }
 
@@ -174,6 +175,12 @@ class FileIndexingService
     public function indexPreparedImage(array $prepared, array $response): string
     {
         $contract = is_array($prepared['contract'] ?? null) ? $prepared['contract'] : [];
+        if (($response['model_id'] ?? null) !== ($contract['model_id'] ?? null)
+            || ($response['model_fingerprint'] ?? null) !== ($contract['model_fingerprint'] ?? null)
+            || ($this->indexLifecycle->getStatus()['active_contract']['model_fingerprint'] ?? null)
+                !== ($contract['model_fingerprint'] ?? null)) {
+            throw new ExternalServiceException('Embedding model changed during indexing.', 'embedding_model_mismatch');
+        }
         $node = $prepared['node'] ?? null;
         if (!$node instanceof File) {
             throw new ExternalServiceException('Prepared image is no longer available.', 'image_not_readable', true);
@@ -196,7 +203,10 @@ class FileIndexingService
         $ownerUid = (string)$prepared['owner_uid'];
         $owner = $node->getOwner();
         $storageId = (string)$node->getMountPoint()->getStorageId();
-        $indexName = $this->indexLifecycle->getWriteIndex();
+        $indexName = (string)($prepared['write_index'] ?? '');
+        if ($indexName === '') {
+            throw new ExternalServiceException('Prepared write index is unavailable.', 'index_not_prepared');
+        }
         $document = [
             'nextcloud_file_id' => $fileId,
             'storage_id' => $storageId,

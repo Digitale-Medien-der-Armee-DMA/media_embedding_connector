@@ -44,7 +44,11 @@ results are returned.
 ## Data stored in Nextcloud
 
 The app stores indexing state, jobs, skip markers, model/index state, audit
-events, and administrator configuration. Service credentials are never returned
+events, and administrator configuration. Short-lived search sessions store the
+user ID, index/model identity and up to 500 ranked file IDs with scores. They do
+not store query text, uploaded query images, query vectors or full ACL lists.
+Sessions expire after 15 minutes; expired rows are removed by a five-minute
+Nextcloud background job when cron runs. Service credentials are never returned
 to the browser after storage.
 
 ## Data stored in the browser

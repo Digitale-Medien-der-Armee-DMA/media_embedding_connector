@@ -1,6 +1,6 @@
 # Media Embedding Connector
 
-[![Nextcloud](https://img.shields.io/badge/Nextcloud-32–34-0082c9?logo=nextcloud&logoColor=white)](https://nextcloud.com/)
+[![Nextcloud](https://img.shields.io/badge/Nextcloud-33–35-0082c9?logo=nextcloud&logoColor=white)](https://nextcloud.com/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-4c1)](LICENSE)
 
 Search Nextcloud images with text, an existing image, or a picture dropped from
@@ -27,7 +27,7 @@ Drop a reference image onto the search field to find visually similar photos.
 
 ## Requirements
 
-- Nextcloud 32–34 and PHP 8.2–8.5
+- Nextcloud 33–35 and PHP 8.2–8.5 (Nextcloud 35 requires PHP 8.3 or newer)
 - Elasticsearch 8.12 or newer
 - A compatible Media Embedding Service at `/api/external/v1`
 - Nextcloud cron for background indexing

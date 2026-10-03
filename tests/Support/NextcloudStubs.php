@@ -49,6 +49,8 @@ namespace OCP {
         {
             public function getQueryBuilder();
 
+            public function escapeLikeParameter($param);
+
             public function lockTable($tableName): void;
 
             public function unlockTable(): void;
@@ -105,6 +107,7 @@ namespace OCP\AppFramework\Utility {
     if (!interface_exists(ITimeFactory::class)) {
         interface ITimeFactory
         {
+            public function getTime(): int;
         }
     }
 }

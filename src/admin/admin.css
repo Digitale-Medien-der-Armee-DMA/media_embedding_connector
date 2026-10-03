@@ -155,6 +155,25 @@
 	font-weight: bold;
 }
 
+.mec-metric--download {
+	align-items: flex-start;
+	text-align: start;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+
+.mec-metric--download:hover,
+.mec-metric--download:focus-visible {
+	border-color: var(--color-primary-element);
+	background-color: var(--color-primary-element-light);
+}
+
+.mec-metric__download {
+	font-size: 12px;
+	color: var(--color-primary-element);
+}
+
 .mec-metric__label {
 	color: var(--color-text-maxcontrast);
 }

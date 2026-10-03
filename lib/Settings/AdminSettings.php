@@ -49,6 +49,7 @@ class AdminSettings implements ISettings
             'test_medialab_url' => $this->route('testMediaLab'),
             'test_elasticsearch_url' => $this->route('testElasticsearch'),
             'status_url' => $this->route('status'),
+            'download_status_url' => $this->route('downloadStatus'),
             'prepare_index_url' => $this->route('prepareIndex'),
             'activate_index_url' => $this->route('activateIndex'),
             'indexing_url' => $this->route('setIndexingEnabled'),

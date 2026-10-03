@@ -65,6 +65,7 @@
 			:search-apps="searchApps"
 			:loading="statusLoading"
 			@refresh="refreshStatus"
+			@download-status="downloadStatus"
 			@delete-index="deleteIndex" />
 
 		<details class="mec-disclosure">
@@ -99,6 +100,7 @@
 </template>
 
 <script setup>
+import { getRequestToken } from '@nextcloud/auth';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import NcButton from '@nextcloud/vue/components/NcButton';
 import NcDialog from '@nextcloud/vue/components/NcDialog';
@@ -155,6 +157,24 @@ const output = ref('');
 const confirmation = ref(null);
 
 const skipFileId = ref('');
+
+/** Native download keeps large exports out of browser memory and sends CSRF. */
+function downloadStatus(status) {
+	const form = document.createElement('form');
+	form.method = 'POST';
+	form.target = '_blank';
+	form.action = state.download_status_url;
+	for (const [name, value] of Object.entries({ status, requesttoken: getRequestToken() ?? '' })) {
+		const input = document.createElement('input');
+		input.type = 'hidden';
+		input.name = name;
+		input.value = value;
+		form.appendChild(input);
+	}
+	document.body.appendChild(form);
+	form.submit();
+	form.remove();
+}
 const skipReason = ref('');
 const probeText = ref('');
 

@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 - 2026-10-03
+
+- Support Nextcloud 33–35, including API compatibility checks and a Nextcloud 35
+  runtime contract test. Drop support for Nextcloud 32. Nextcloud 35 requires PHP
+  8.3 or newer; older supported Nextcloud versions can still use PHP 8.2.
+- Enumerate mounted file-cache candidates with keyset pagination, then validate
+  access through the supported `fileid IN` filesystem filter. Cover own photos,
+  received shares and revoked access with an actual Nextcloud runtime test.
+- Search the complete readable Nextcloud image scope before ranking. Use exact
+  cosine search for scopes up to 10,000 images and ANN with 10,000 candidates per
+  shard for larger scopes; merge all scope blocks and display 49 images per page.
+- Keep up to 500 ranked results in owner-bound, 15-minute search sessions. Reuse
+  the ranking when paging without new embeddings, uploads or scope enumeration;
+  recheck current permissions and refill pages after revocations.
+- Pin searches to one concrete index/model and use an ES snapshot while building
+  the ranking. Reject model drift, partial searches and technical permission
+  lookup failures. Create new indices with explicit unquantized HNSW mappings.
+- Stop automatic retries after failed paging, show actionable session/model
+  errors and abort superseded browser requests.
+- Add administrator JSON downloads for queued, running and failed jobs and
+  persistent skipped files, including names, storage paths and diagnostic details.
 
 ## 0.4.2 - 2026-09-28
 

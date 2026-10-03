@@ -10,11 +10,12 @@ import { getRequestToken } from '@nextcloud/auth';
  * @return {Promise<{ok: boolean, payload: object}>}
  */
 export async function request(url, options = {}) {
-	const { method = 'GET', body = null } = options;
+	const { method = 'GET', body = null, signal } = options;
 	const response = await fetch(url, {
 		method,
 		headers: { requesttoken: getRequestToken() ?? '' },
 		body,
+		signal,
 	});
 
 	let payload = {};
@@ -34,6 +35,6 @@ export async function request(url, options = {}) {
  * @param {URLSearchParams|FormData} [body] request body
  * @return {Promise<{ok: boolean, payload: object}>}
  */
-export function post(url, body) {
-	return request(url, { method: 'POST', body: body ?? new URLSearchParams() });
+export function post(url, body, options = {}) {
+	return request(url, { ...options, method: 'POST', body: body ?? new URLSearchParams() });
 }

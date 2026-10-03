@@ -30,6 +30,11 @@ return [
             'verb' => 'GET',
         ],
         [
+            'name' => 'admin#downloadStatus',
+            'url' => '/settings/status/download',
+            'verb' => 'POST',
+        ],
+        [
             'name' => 'admin#setIndexingEnabled',
             'url' => '/settings/indexing',
             'verb' => 'POST',
@@ -83,6 +88,11 @@ return [
             'name' => 'search#index',
             'url' => '/',
             'verb' => 'GET',
+        ],
+        [
+            'name' => 'search#page',
+            'url' => '/api/search/page',
+            'verb' => 'POST',
         ],
         [
             'name' => 'search#search',

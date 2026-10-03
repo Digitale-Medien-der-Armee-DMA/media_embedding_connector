@@ -28,6 +28,21 @@ class ImageEmbeddingService
         return array_map(static fn (mixed $value): float => (float)$value, $embedded['vector']);
     }
 
+    /** @param array<string, mixed> $uploadedFile
+     * @param array<string, mixed> $contract
+     * @return list<float|int>
+     */
+    public function embedUploadedFileForSearch(array $uploadedFile, array $contract): array
+    {
+        $embedded = $this->embedAndValidateUploadedFile($uploadedFile, $contract);
+        $response = $embedded['response'];
+        if (($response['model_id'] ?? null) !== ($contract['model_id'] ?? null)
+            || ($response['model_fingerprint'] ?? null) !== ($contract['model_fingerprint'] ?? null)) {
+            throw new ExternalServiceException('Query image model differs from the search index.', 'search_model_mismatch');
+        }
+        return $embedded['vector'];
+    }
+
     /**
      * @param array<string, mixed> $uploadedFile
      * @return array<string, mixed>
@@ -52,7 +67,7 @@ class ImageEmbeddingService
      * @param array<string, mixed> $uploadedFile
      * @return array{response:array<string, mixed>, vector:list<float|int>}
      */
-    private function embedAndValidateUploadedFile(array $uploadedFile): array
+    private function embedAndValidateUploadedFile(array $uploadedFile, ?array $contract = null): array
     {
         $tmpName = (string)($uploadedFile['tmp_name'] ?? '');
         if ($tmpName === '' || !is_readable($tmpName)) {
@@ -63,7 +78,7 @@ class ImageEmbeddingService
         $mimeType = ImageEligibilityService::normalizeMimeType($detectedMime);
         $size = filesize($tmpName);
         $sizeBytes = is_int($size) ? $size : null;
-        $contract = $this->contractService->getDefaultModelContract();
+        $contract ??= $this->contractService->getDefaultModelContract();
         $eligibility = $this->eligibilityService->evaluate($mimeType, $sizeBytes, null, $contract);
         if ($eligibility['allowed'] !== true) {
             throw new \InvalidArgumentException((string)($eligibility['reason'] ?? 'unsupported_image_type'));

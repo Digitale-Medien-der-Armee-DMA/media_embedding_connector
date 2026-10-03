@@ -105,6 +105,11 @@
 					@similar="runSimilarSearch"
 					@open="openResult" />
 
+				<p v-if="results.length && errorMessage" role="alert">{{ errorMessage }}</p>
+				<p v-if="results.length && resultLimitReached && !hasMore && !loading">
+					{{ t('Showing the best results. Refine your search to find more images.') }}
+				</p>
+
 				<div ref="sentinel" class="mec-sentinel" aria-hidden="true" />
 
 				<div v-if="hasMore" class="mec-more">
@@ -145,7 +150,7 @@ const props = defineProps({ state: { type: Object, required: true } });
 const HISTORY_KEY = 'media_embedding_connector:history';
 const SESSION_KEY = 'media_embedding_connector:last-search';
 const HISTORY_LIMIT = 10;
-const PAGE_SIZE = 48;
+const PAGE_SIZE = 49;
 const AUTO_LOAD_MARGIN = 400;
 // Base64 expands the file by one third; leave room in sessionStorage for Nextcloud.
 const SESSION_IMAGE_LIMIT = 3 * 1024 * 1024;
@@ -169,6 +174,9 @@ const imageInput = ref(null);
 
 let current = { mode: 'text', query: '', fileId: '', name: '', file: null, offset: 0 };
 let requestSequence = 0;
+let activeRequest = null;
+const pagingFailed = ref(false);
+const resultLimitReached = ref(false);
 let dropTimer = null;
 let observer = null;
 let autoLoadFrame = null;
@@ -325,11 +333,16 @@ async function load(append) {
 		return;
 	}
 	const requestId = ++requestSequence;
+	activeRequest?.abort();
+	activeRequest = new AbortController();
 	const mode = current.mode;
 	loading.value = true;
+	pagingFailed.value = false;
+	errorMessage.value = '';
 	if (!append) {
-		errorMessage.value = '';
 		results.value = [];
+		resultLimitReached.value = false;
+		current.sessionId = '';
 	}
 
 	const requestedOffset = append ? current.offset : 0;
@@ -337,7 +350,10 @@ async function load(append) {
 	let url = props.state.search_url;
 	let body;
 
-	if (mode === 'similar') {
+	if (append) {
+		url = props.state.page_url;
+		body = new URLSearchParams({ session_id: current.sessionId ?? '', limit: String(PAGE_SIZE), offset });
+	} else if (mode === 'similar') {
 		url = props.state.similar_url.replace('__FILE_ID__', encodeURIComponent(current.fileId));
 		body = new URLSearchParams({ limit: String(PAGE_SIZE), offset });
 	} else if (mode === 'upload') {
@@ -351,7 +367,7 @@ async function load(append) {
 	}
 
 	try {
-		const { ok, payload } = await post(url, body);
+		const { ok, payload } = await post(url, body, { signal: activeRequest.signal });
 		if (requestId !== requestSequence) {
 			return;
 		}
@@ -360,7 +376,15 @@ async function load(append) {
 		}
 		const page = Array.isArray(payload.results) ? payload.results : [];
 		const nextOffset = Number(payload.next_offset);
-		results.value = append ? [...results.value, ...page] : page;
+		const seen = new Set(append ? results.value.map((result) => result.file_id) : []);
+		const uniquePage = page.filter((result) => {
+			if (seen.has(result.file_id)) { return false; }
+			seen.add(result.file_id);
+			return true;
+		});
+		results.value = append ? [...results.value, ...uniquePage] : uniquePage;
+		current.sessionId = payload.session_id ?? current.sessionId;
+		resultLimitReached.value = Boolean(payload.result_limit_reached);
 		current.offset = Number.isFinite(nextOffset) ? nextOffset : 0;
 		hasMore.value = Boolean(payload.has_more)
 			&& page.length > 0
@@ -373,7 +397,14 @@ async function load(append) {
 		if (requestId !== requestSequence) {
 			return;
 		}
-		if (!append) {
+		pagingFailed.value = true;
+		if (error.message === 'search_session_expired') {
+			hasMore.value = false;
+			errorMessage.value = t('This search has expired. Start a new search.');
+		} else if (['search_model_mismatch', 'search_model_unknown'].includes(error.message)) {
+			hasMore.value = false;
+			errorMessage.value = t('The search index and embedding model do not match. Contact your administrator.');
+		} else {
 			errorMessage.value = mode === 'upload'
 				? imageSearchError(error.message)
 				: t('Search could not be completed.');
@@ -420,7 +451,7 @@ function scheduleAutoLoadCheck() {
 		autoLoadFrame = window.requestAnimationFrame(() => {
 			autoLoadFrame = null;
 			autoLoadCheckPending = false;
-			if (hasMore.value && !loading.value && isSentinelNearViewport()) {
+			if (hasMore.value && !loading.value && !pagingFailed.value && isSentinelNearViewport()) {
 				loadMore();
 			}
 		});
@@ -508,6 +539,9 @@ function runUploadedImageSearch(file) {
 
 /** Leave the similarity context and return to text search. */
 function resetContext() {
+	++requestSequence;
+	activeRequest?.abort();
+	loading.value = false;
 	releasePreview();
 	context.value = null;
 	const trimmed = query.value.trim();
@@ -725,6 +759,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+	++requestSequence;
+	activeRequest?.abort();
 	observer?.disconnect();
 	if (autoLoadFrame !== null) {
 		window.cancelAnimationFrame(autoLoadFrame);

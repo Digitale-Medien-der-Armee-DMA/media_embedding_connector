@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace OCA\MediaEmbeddingConnector\Db;
 
 /**
- * Uses the typed result APIs introduced in Nextcloud 33 while retaining the
- * legacy fallback required by supported Nextcloud 32 installations.
+ * Uses the typed result APIs available in all supported Nextcloud versions.
+ * Retains legacy fallbacks for result adapters supplied by integrations.
  */
 final class ResultCompat
 {

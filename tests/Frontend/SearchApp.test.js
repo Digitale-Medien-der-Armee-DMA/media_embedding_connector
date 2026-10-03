@@ -79,6 +79,7 @@ const state = {
 	indexing_enabled: true,
 	image_accept: 'image/jpeg,image/png,image/webp',
 	search_url: '/search',
+	page_url: '/search/page',
 	image_search_url: '/search/image',
 	similar_url: '/search/__FILE_ID__',
 };
@@ -254,15 +255,15 @@ describe('SearchApp', () => {
 	});
 
 	it('keeps a manual paging fallback and loads the second result page', async () => {
-		const firstPage = Array.from({ length: 48 }, (_, index) => ({
+		const firstPage = Array.from({ length: 49 }, (_, index) => ({
 			file_id: String(index + 1),
 			name: `image-${index + 1}.jpg`,
 		}));
-		const secondPage = [{ file_id: '49', name: 'image-49.jpg' }];
+		const secondPage = [{ file_id: '50', name: 'image-50.jpg' }];
 		post
 			.mockResolvedValueOnce({
 				ok: true,
-				payload: { results: firstPage, has_more: true, next_offset: 48 },
+				payload: { results: firstPage, has_more: true, next_offset: 49 },
 			})
 			.mockResolvedValueOnce({
 				ok: true,
@@ -279,23 +280,25 @@ describe('SearchApp', () => {
 		await flushPromises();
 
 		expect(post).toHaveBeenCalledTimes(2);
-		expect(post.mock.calls[1][1].get('offset')).toBe('48');
-		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(49);
+		expect(post.mock.calls[1][1].get('offset')).toBe('49');
+		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(50);
 		expect(wrapper.find('.mec-more').exists()).toBe(false);
 	});
 
-	it('continues paging beyond 500 displayed results', async () => {
+	it('finishes the bounded session at 500 results with a refinement notice', async () => {
 		for (let page = 0; page < 11; page += 1) {
-			const offset = page * 48;
+			const offset = page * 49;
 			post.mockResolvedValueOnce({
 				ok: true,
 				payload: {
-					results: Array.from({ length: 48 }, (_, index) => ({
+					results: Array.from({ length: Math.min(49, 500 - offset) }, (_, index) => ({
 						file_id: String(offset + index + 1),
 						name: `image-${offset + index + 1}.jpg`,
 					})),
+					session_id: 'search-session',
+					result_limit_reached: true,
 					has_more: page < 10,
-					next_offset: page < 10 ? offset + 48 : null,
+					next_offset: page < 10 ? offset + 49 : null,
 				},
 			});
 		}
@@ -310,8 +313,9 @@ describe('SearchApp', () => {
 		}
 
 		expect(post).toHaveBeenCalledTimes(11);
-		expect(post.mock.calls[10][1].get('offset')).toBe('480');
-		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(528);
+		expect(post.mock.calls[10][1].get('offset')).toBe('490');
+		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(500);
+		expect(wrapper.text()).toContain('Refine your search');
 	});
 
 	it('rechecks an intersection that occurred while the first page was loading', async () => {
@@ -355,12 +359,12 @@ describe('SearchApp', () => {
 		resolveFirstPage({
 			ok: true,
 			payload: {
-				results: Array.from({ length: 48 }, (_, index) => ({
+				results: Array.from({ length: 49 }, (_, index) => ({
 					file_id: String(index + 1),
 					name: `image-${index + 1}.jpg`,
 				})),
 				has_more: true,
-				next_offset: 48,
+				next_offset: 49,
 			},
 		});
 		await flushPromises();
@@ -368,7 +372,82 @@ describe('SearchApp', () => {
 		await flushPromises();
 
 		expect(post).toHaveBeenCalledTimes(2);
-		expect(post.mock.calls[1][1].get('offset')).toBe('48');
+		expect(post.mock.calls[1][1].get('offset')).toBe('49');
 		wrapper.unmount();
 	});
+	it('loads upload-search pages from a session without sending the image again', async () => {
+		post.mockResolvedValueOnce({ ok: true, payload: {
+			results: [{ file_id: '1' }], has_more: true, next_offset: 1, session_id: 'owned-session',
+		} }).mockResolvedValueOnce({ ok: true, payload: {
+			results: [{ file_id: '2' }], has_more: false, next_offset: null, session_id: 'owned-session',
+		} });
+		const wrapper = mountSearch();
+		await wrapper.get('form.mec-search').trigger('drop', {
+			dataTransfer: dataTransfer([new File(['image'], 'query.png', { type: 'image/png' })]),
+		});
+		await flushPromises();
+		await wrapper.get('.mec-more button').trigger('click');
+		await flushPromises();
+		expect(post.mock.calls[0][1]).toBeInstanceOf(FormData);
+		expect(post.mock.calls[1][0]).toBe('/search/page');
+		expect(post.mock.calls[1][1].get('session_id')).toBe('owned-session');
+		expect(post.mock.calls[1][1].has('image')).toBe(false);
+		wrapper.unmount();
+	});
+
+	it('stops automatic retries after a failed page and allows a manual retry', async () => {
+		const frames = [];
+		vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+			frames.push(callback); return frames.length;
+		});
+		post.mockResolvedValueOnce({ ok: true, payload: {
+			results: [{ file_id: '1' }], has_more: true, next_offset: 1, session_id: 'session',
+		} }).mockResolvedValueOnce({ ok: false, payload: { error: 'search_failed' } })
+		.mockResolvedValueOnce({ ok: true, payload: { results: [{ file_id: '2' }], has_more: false, next_offset: null } });
+		const wrapper = mountSearch();
+		await wrapper.get('input[type="search"]').setValue('forest');
+		await wrapper.get('form.mec-search').trigger('submit');
+		await flushPromises();
+		frames.shift()();
+		await flushPromises();
+		frames.shift()();
+		await flushPromises();
+		expect(post).toHaveBeenCalledTimes(2);
+		expect(wrapper.get('[role="alert"]').text()).toContain('Search could not be completed');
+		await wrapper.get('.mec-more button').trigger('click');
+		await flushPromises();
+		expect(post).toHaveBeenCalledTimes(3);
+		expect(wrapper.findComponent({ name: 'ResultsGrid' }).props('results')).toHaveLength(2);
+		wrapper.unmount();
+	});
+
+	it('shows expired sessions and stops paging instead of starting a different ranking', async () => {
+		post.mockResolvedValueOnce({ ok: true, payload: {
+			results: [{ file_id: '1' }], has_more: true, next_offset: 1, session_id: 'session',
+		} }).mockResolvedValueOnce({ ok: false, payload: { error: 'search_session_expired' } });
+		const wrapper = mountSearch();
+		await wrapper.get('input[type="search"]').setValue('forest');
+		await wrapper.get('form.mec-search').trigger('submit');
+		await flushPromises();
+		await wrapper.get('.mec-more button').trigger('click');
+		await flushPromises();
+		expect(wrapper.get('[role="alert"]').text()).toContain('This search has expired');
+		expect(wrapper.find('.mec-more').exists()).toBe(false);
+		wrapper.unmount();
+	});
+
+	it('aborts the preceding request when a new query starts', async () => {
+		post.mockImplementationOnce(() => new Promise(() => {}));
+		const wrapper = mountSearch();
+		await wrapper.get('input[type="search"]').setValue('first');
+		await wrapper.get('form.mec-search').trigger('submit');
+		const signal = post.mock.calls[0][2].signal;
+		await wrapper.get('input[type="search"]').setValue('second');
+		await wrapper.get('form.mec-search').trigger('submit');
+		await flushPromises();
+		expect(signal.aborted).toBe(true);
+		wrapper.unmount();
+	});
+
 });

@@ -11,8 +11,8 @@ Media Embedding Connector separates file ownership from embedding and vector sea
 
 ## Requirements
 
-- Nextcloud 32, 33, or 34
-- PHP 8.2 through 8.5
+- Nextcloud 33, 34, or 35; Nextcloud 32 is no longer supported from app 0.4.3
+- PHP 8.2 through 8.5; Nextcloud 35 requires PHP 8.3 through 8.5
 - Elasticsearch 8.12 or newer
 - a compatible Media Embedding Service API under `/api/external/v1`
 - Nextcloud cron for background jobs
@@ -49,6 +49,75 @@ Installing or enabling the app does not start indexing.
 Use system cron rather than AJAX background jobs. Monitor queued, running,
 failed, skipped, and indexed items from the administration page. Retry temporary
 failures only after the underlying service has recovered.
+
+Click **Queued jobs**, **Running jobs**, **Failed jobs**, or **Skipped files**
+under **Operational status** to download a JSON file containing the corresponding
+records. Downloads require administrator access. They include file IDs, names,
+numeric storage IDs and storage-relative paths, plus queue details or skip reasons.
+Missing file-cache entries retain their records with null file metadata. Skipped
+files are exported from persistent skip markers, matching the displayed counter;
+the other downloads use job records. There is no fixed record limit. Export
+generation uses paginated database reads and a temporary file, which is deleted
+automatically. Job statuses can change during generation, so the exported count
+may differ from a previously refreshed status card.
+
+### Search coverage, quality and sessions
+
+Every new search enumerates all supported, readable image IDs through the user's
+Nextcloud filesystem, including received shares and mounted group/external folders.
+Candidate IDs are read in keyset pages from the file-cache roots of the current
+mounts, then checked through Nextcloud's permission-aware filesystem search with
+`fileid IN (...)`. Database candidates alone never grant access. This avoids the
+unsupported `fileid > ...` filesystem comparison and deep offset pagination.
+There is no total scope cap. Enumeration is live for each new query so unobserved
+third-party ACL or mount changes cannot leave a shared permission cache stale.
+The IDs form an Elasticsearch **pre-filter**; ranking never starts with global
+hits that are filtered afterwards. Up to 50,000 IDs are sent per scope block and
+all blocks contribute to the merged ranking.
+
+A complete scope of at most 10,000 image IDs uses exact cosine vector scoring.
+Larger scopes use approximate kNN with `num_candidates=10000` per shard per block.
+The exact threshold is a starting value, not a benchmark for a particular server.
+Both methods require normalized cosine vectors and filter by the search index's
+model fingerprint. ANN does not guarantee exact nearest neighbours. Only suitable
+images already indexed under that model can be found; skipped, failed and missing
+images need indexing first.
+
+The actual search alias target and its model are resolved before embedding. A
+short-lived Elasticsearch point in time keeps all scope-block searches consistent.
+The merged ranking retains at most 500 results to bound retrieval cost, storage and
+permission checks. The default page shows 49 images, including the reference for
+similar-image search. When the pool is exhausted and more candidates existed, the
+UI asks the user to refine the query. The result cap never limits the file scope
+searched. New indices explicitly use unquantized `hnsw`; existing vector mappings
+are not changed by this update.
+
+Ranked IDs and scores are stored as an owner-bound, random-token search session in
+Nextcloud for 15 minutes. Query text, uploaded images, query vectors and the full
+permission list are not stored in these sessions. Subsequent pages reuse the
+ranking without re-embedding, re-uploading, filesystem enumeration or ES searches.
+Each page checks current Nextcloud read permissions, skips deleted/revoked files,
+and fills from later candidates without shifting earlier pages. Technical lookup
+errors fail explicitly. New grants and newly indexed files appear in a **new**
+search; the current session keeps its original ordering. Expired sessions require
+a new search. Failed paging stops automatic retries and offers a manual retry.
+
+New index mappings contain the model identity in `_meta.embedding_contract`.
+Existing indices fall back to the model fields on an indexed document, so no
+re-embedding is required for this change. An empty legacy index with no model
+metadata cannot be searched until its model identity is established. The MediaLab
+adapter currently uses default-model inference: if its default model differs from
+the search index, text/upload searches stop with an explicit mismatch instead of
+returning incompatible results. Existing sessions and indexed-image similarity
+search do not need MediaLab inference. Model fingerprints are checked again on
+embedding responses to detect changes during a request.
+
+Version 0.4.3 adds `media_embed_search` through the app's database migration.
+Expired rows are cleaned by a five-minute Nextcloud background job and sessions are
+removed when the app is uninstalled. Upgrade the app and run its normal Nextcloud
+migration before using the new frontend. First-search latency still includes full
+live scope enumeration: measure on the production dataset, particularly for users
+with access to hundreds of thousands of images. Cached pages avoid that work.
 
 ### How indexing runs
 

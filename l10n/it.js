@@ -147,6 +147,10 @@ OC.L10N.register(
     "Images checked" : "Immagini verificate",
     "Queued for indexing" : "Accodate per l’indicizzazione",
     "Unchanged, not queued" : "Invariate, non accodate",
-    "Waiting in queue" : "In attesa nella coda"
+    "Waiting in queue" : "In attesa nella coda",
+    "Download file list (JSON)" : "Scarica l’elenco dei file (JSON)",
+    "Showing the best results. Refine your search to find more images." : "Sono mostrati i risultati migliori. Affina la ricerca per trovare altre immagini.",
+    "This search has expired. Start a new search." : "Questa ricerca è scaduta. Avvia una nuova ricerca.",
+    "The search index and embedding model do not match. Contact your administrator." : "L’indice di ricerca e il modello di embedding non corrispondono. Contatta l’amministrazione."
 },
 "nplurals=2; plural=(n != 1);");

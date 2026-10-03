@@ -39,6 +39,12 @@ image onto the results area. The same data-processing rules above apply to selec
 All returned files are checked against your current Nextcloud permissions. A
 search result does not grant access to a file.
 
+Each search keeps a stable ranking for 15 minutes and displays 49 images per page,
+up to the best 500 results. Refine the query to find other images. Further pages
+reuse the original search without resending text or uploading the query image.
+Newly shared or indexed images appear when you start a new search. If a search
+expires, submit it again. A failed page can be retried with **Load more**.
+
 ## Supported formats
 
 JPEG, PNG, and WebP are supported by default. GIF may be enabled when the

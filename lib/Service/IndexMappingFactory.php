@@ -35,6 +35,13 @@ class IndexMappingFactory
             'mapping' => [
                 'mappings' => [
                     'dynamic' => 'strict',
+                    '_meta' => ['embedding_contract' => [
+                        'model_id' => $contract['model_id'] ?? null,
+                        'model_fingerprint' => $contract['model_fingerprint'] ?? null,
+                        'embedding_dim' => $embeddingDim,
+                        'normalized' => $contract['normalized'] ?? null,
+                        'similarity' => $similarity,
+                    ]],
                     'properties' => [
                         'nextcloud_file_id' => ['type' => 'keyword'],
                         'storage_id' => ['type' => 'keyword'],
@@ -46,6 +53,7 @@ class IndexMappingFactory
                             'type' => 'dense_vector',
                             'dims' => $embeddingDim,
                             'index' => true,
+                            'index_options' => ['type' => 'hnsw'],
                             'similarity' => $similarity,
                         ],
                         'model_id' => ['type' => 'keyword'],

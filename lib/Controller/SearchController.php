@@ -55,6 +55,7 @@ class SearchController extends Controller
 
         $this->initialState->provideInitialState('search', [
             'search_url' => $this->routeUrl('search'),
+            'page_url' => $this->routeUrl('page'),
             'image_search_url' => $this->routeUrl('image'),
             'similar_url' => $this->routeUrl('similar', ['fileId' => '__FILE_ID__']),
             'indexing_enabled' => $this->config->isIndexingEnabled(),
@@ -65,6 +66,30 @@ class SearchController extends Controller
         ]);
 
         return new TemplateResponse(Application::APP_ID, 'search/index');
+    }
+
+    #[NoAdminRequired]
+    public function page(): DataResponse
+    {
+        $user = $this->userSession->getUser();
+        if ($user === null) {
+            return new DataResponse(['success' => false, 'error' => 'authentication_required'], 401);
+        }
+        if (!$this->accessPolicy->isUserAllowed($user)) {
+            return $this->accessDenied();
+        }
+        try {
+            return new DataResponse(['success' => true] + $this->searchService->searchPage(
+                $user->getUID(),
+                (string)$this->request->getParam('session_id', ''),
+                (int)$this->request->getParam('limit', 49),
+                (int)$this->request->getParam('offset', 0),
+            ));
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['success' => false, 'error' => $e->getMessage()], 400);
+        } catch (\Throwable $e) {
+            return $this->searchError($e);
+        }
     }
 
     #[NoAdminRequired]
@@ -83,7 +108,7 @@ class SearchController extends Controller
             return new DataResponse(['success' => true] + $this->searchService->searchText(
                 $userId,
                 (string)$this->request->getParam('query', ''),
-                (int)$this->request->getParam('limit', 48),
+                (int)$this->request->getParam('limit', 49),
                 (int)$this->request->getParam('offset', 0),
             ));
         } catch (\InvalidArgumentException $e) {
@@ -109,9 +134,11 @@ class SearchController extends Controller
             return new DataResponse(['success' => true] + $this->searchService->searchSimilar(
                 $userId,
                 $fileId,
-                (int)$this->request->getParam('limit', 48),
+                (int)$this->request->getParam('limit', 49),
                 (int)$this->request->getParam('offset', 0),
             ));
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['success' => false, 'error' => $e->getMessage()], 400);
         } catch (\Throwable $e) {
             return $this->searchError($e);
         }
@@ -148,7 +175,7 @@ class SearchController extends Controller
             return new DataResponse(['success' => true] + $this->searchService->searchUploadedImage(
                 $user->getUID(),
                 $uploadedFile,
-                (int)$this->request->getParam('limit', 48),
+                (int)$this->request->getParam('limit', 49),
                 (int)$this->request->getParam('offset', 0),
             ));
         } catch (\InvalidArgumentException $e) {
@@ -187,7 +214,13 @@ class SearchController extends Controller
             $context['exception'] = $e;
         }
         $this->logger->warning('Media search failed', $context);
-        return new DataResponse(['success' => false, 'error' => $code], 502);
+        $status = match ($code) {
+            'search_session_expired' => 410,
+            'file_not_accessible', 'access_denied' => 403,
+            'search_model_mismatch', 'search_model_unknown' => 409,
+            default => 502,
+        };
+        return new DataResponse(['success' => false, 'error' => $code], $status);
     }
 
     private function accessDenied(): DataResponse

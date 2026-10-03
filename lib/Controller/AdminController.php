@@ -7,6 +7,7 @@ namespace OCA\MediaEmbeddingConnector\Controller;
 use OCA\MediaEmbeddingConnector\AppInfo\Application;
 use OCA\MediaEmbeddingConnector\BackgroundJob\ProcessIndexJob;
 use OCA\MediaEmbeddingConnector\Db\AuditRepository;
+use OCA\MediaEmbeddingConnector\Db\FileStatusExportRepository;
 use OCA\MediaEmbeddingConnector\Db\IndexedFileRepository;
 use OCA\MediaEmbeddingConnector\Db\IndexJobRepository;
 use OCA\MediaEmbeddingConnector\Db\SkipMarkerRepository;
@@ -14,6 +15,7 @@ use OCA\MediaEmbeddingConnector\Exception\ExternalServiceException;
 use OCA\MediaEmbeddingConnector\Service\AppConfig;
 use OCA\MediaEmbeddingConnector\Service\BackfillScanner;
 use OCA\MediaEmbeddingConnector\Service\ElasticsearchClient;
+use OCA\MediaEmbeddingConnector\Service\FileStatusExportService;
 use OCA\MediaEmbeddingConnector\Service\ImageEmbeddingService;
 use OCA\MediaEmbeddingConnector\Service\IndexLifecycleService;
 use OCA\MediaEmbeddingConnector\Service\IndexMappingFactory;
@@ -23,6 +25,7 @@ use OCA\MediaEmbeddingConnector\Service\SearchPluginDetector;
 use OCA\MediaEmbeddingConnector\Service\TextEmbeddingService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Http\StreamResponse;
 use OCP\AppFramework\Http\Attribute\OpenAPI;
 use OCP\BackgroundJob\IJobList;
 use OCP\IRequest;
@@ -53,6 +56,7 @@ class AdminController extends Controller
         private IUserSession $userSession,
         private IUserManager $userManager,
         private LoggerInterface $logger,
+        private FileStatusExportService $fileStatusExport,
     ) {
         parent::__construct(Application::APP_ID, $request);
     }
@@ -250,6 +254,26 @@ class AdminController extends Controller
             return new DataResponse(['success' => true] + $result);
         } catch (\Throwable $e) {
             return $this->externalError($e, 'index_prepare_failed');
+        }
+    }
+
+    // Default Nextcloud middleware requires both administrator access and CSRF.
+    public function downloadStatus(): StreamResponse|DataResponse
+    {
+        $status = (string)$this->request->getParam('status', '');
+        if (!in_array($status, FileStatusExportRepository::STATUSES, true)) {
+            return new DataResponse(['success' => false, 'error' => 'invalid_export_status'], 400);
+        }
+        try {
+            $stream = $this->fileStatusExport->create($status);
+            return new StreamResponse($stream, 200, [
+                'Content-Type' => 'application/json; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="media-embedding-' . $status . '.json"',
+                'Cache-Control' => 'no-store',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (\Throwable $e) {
+            return $this->externalError($e, 'status_export_failed');
         }
     }
 

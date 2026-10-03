@@ -13,6 +13,32 @@ use PHPUnit\Framework\TestCase;
 
 class ElasticsearchClientTest extends TestCase
 {
+    public function testEmptyScopeCannotSendAnUnfilteredSearch(): void
+    {
+        $clientService = $this->createMock(IClientService::class);
+        $clientService->expects(self::never())->method('newClient');
+        $service = new ElasticsearchClient($this->createMock(ConnectionConfigService::class), $clientService);
+        self::assertSame([], $service->search('nc_media_embeddings_search', [1.0], 49, []));
+    }
+
+    public function testPartialElasticsearchResultsAreRejected(): void
+    {
+        $response = $this->createMock(IResponse::class);
+        $response->method('getStatusCode')->willReturn(200);
+        $response->method('getBody')->willReturn('{"timed_out":false,"_shards":{"failed":1},"hits":{"hits":[]}}');
+        $client = $this->createMock(IClient::class);
+        $client->method('request')->willReturn($response);
+        $clientService = $this->createMock(IClientService::class);
+        $clientService->method('newClient')->willReturn($client);
+        $connection = $this->createMock(ConnectionConfigService::class);
+        $connection->method('getElasticsearchConnection')->willReturn([
+            'url' => 'https://elasticsearch.example.com', 'username' => '', 'password' => '',
+            'api_key' => '', 'verify_tls' => true, 'allow_private_networks' => false,
+        ]);
+        $this->expectException(\OCA\MediaEmbeddingConnector\Exception\ExternalServiceException::class);
+        (new ElasticsearchClient($connection, $clientService))->search('nc_media_embeddings_search', [1.0], 49, ['123']);
+    }
+
     public function testSearchAllowsMoreThanFiveHundredResults(): void
     {
         $captured = [];
@@ -39,17 +65,18 @@ class ElasticsearchClientTest extends TestCase
         ]);
 
         $service = new ElasticsearchClient($connection, $clientService);
-        $service->search('nc_media_embeddings_search', [1.0, 0.0], 600);
+        $service->search('nc_media_embeddings_search', [1.0, 0.0], 600, ['123']);
 
         self::assertSame('POST', $captured['method']);
-        self::assertSame('https://elasticsearch.example.com/nc_media_embeddings_search/_search', $captured['url']);
+        self::assertSame('https://elasticsearch.example.com/nc_media_embeddings_search/_search?allow_partial_search_results=false', $captured['url']);
         $body = json_decode((string)$captured['options']['body'], true, 512, JSON_THROW_ON_ERROR);
         self::assertSame(600, $body['size']);
+        self::assertSame(['123'], $body['knn']['filter']['bool']['filter'][0]['ids']['values']);
         self::assertSame(600, $body['knn']['k']);
-        self::assertSame(2000, $body['knn']['num_candidates']);
+        self::assertSame(10000, $body['knn']['num_candidates']);
     }
 
-    public function testCandidateCountGrowsOnlyWhenKExceedsFixedBudget(): void
+    public function testCandidateBudgetRemainsTenThousandForLargeK(): void
     {
         $captured = [];
         $response = $this->createMock(IResponse::class);
@@ -75,10 +102,11 @@ class ElasticsearchClientTest extends TestCase
         ]);
 
         $service = new ElasticsearchClient($connection, $clientService);
-        $service->search('nc_media_embeddings_search', [1.0, 0.0], 2500);
+        $service->search('nc_media_embeddings_search', [1.0, 0.0], 5500, ['123'], '99');
 
         $body = json_decode((string)$captured['options']['body'], true, 512, JSON_THROW_ON_ERROR);
-        self::assertSame(2500, $body['knn']['k']);
-        self::assertSame(2500, $body['knn']['num_candidates']);
+        self::assertSame(5500, $body['knn']['k']);
+        self::assertSame(['99'], $body['knn']['filter']['bool']['must_not'][0]['ids']['values']);
+        self::assertSame(10000, $body['knn']['num_candidates']);
     }
 }
