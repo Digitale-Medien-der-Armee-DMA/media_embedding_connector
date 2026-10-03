@@ -34,8 +34,15 @@ inserted into Nextcloud Files or Elasticsearch.
 
 The connector-managed index contains vectors and technical references required
 to resolve an indexed file, including a Nextcloud file identifier, file state,
-MIME type, size, model information, and operational timestamps. It does not
+MIME type, size, model information, numeric storage/folder ancestry identifiers,
+a structure schema version, and operational timestamps. It does not
 intentionally store filenames, paths, owners, users, groups, shares, or ACLs.
+
+Version 0.4.4 removes legacy string storage IDs (which could encode a user ID)
+from the active indices during its metadata pass. Until that pass finishes,
+legacy documents can still contain those values. Numeric folder references
+describe structure, not user/group ACLs; a user's current readable roots are
+resolved live for each new search and used only in its ES request.
 
 Search candidates are resolved through the current user's Nextcloud file tree.
 Files that are deleted, inaccessible, or no longer shared are excluded before
@@ -44,7 +51,8 @@ results are returned.
 ## Data stored in Nextcloud
 
 The app stores indexing state, jobs, skip markers, model/index state, audit
-events, and administrator configuration. Short-lived search sessions store the
+events, administrator configuration, persistent structure-repair tasks, and
+metadata error records with storage-relative paths. Short-lived search sessions store the
 user ID, index/model identity and up to 500 ranked file IDs with scores. They do
 not store query text, uploaded query images, query vectors or full ACL lists.
 Sessions expire after 15 minutes; expired rows are removed by a five-minute

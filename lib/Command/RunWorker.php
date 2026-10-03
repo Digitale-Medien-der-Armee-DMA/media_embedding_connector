@@ -27,6 +27,7 @@ class RunWorker extends Command
         private ImageEmbeddingQueueWorker $worker,
         private BackfillScanner $scanner,
         private AppConfig $config,
+        private \OCA\MediaEmbeddingConnector\Service\StructureMigrationService $structureMigration,
     ) {
         parent::__construct();
     }
@@ -62,6 +63,7 @@ class RunWorker extends Command
 
         while ($deadline === null || microtime(true) < $deadline) {
             $this->config->reload();
+            $this->structureMigration->runSlice(10);
             if (!$this->config->isIndexingEnabled()) {
                 $output->writeln('<comment>Indexing is disabled; waiting.</comment>', OutputInterface::VERBOSITY_VERBOSE);
                 sleep($idleSleep);

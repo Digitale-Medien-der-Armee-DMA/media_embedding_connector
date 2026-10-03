@@ -13,6 +13,7 @@ class ElasticsearchClient
     private const MANAGED_INDEX_PREFIX = 'nc_media_embeddings_';
     private const MAX_KNN_RESULTS = 5_500;
     private const NUM_KNN_CANDIDATES = 10_000;
+    private array $structureMappings = [];
 
     public function __construct(
         private ConnectionConfigService $connectionConfig,
@@ -178,7 +179,7 @@ class ElasticsearchClient
 
     /**
      * @param list<float|int> $vector
-     * @param list<string> $fileIds Explicit readable scope, at most 50000 IDs.
+     * @param array<string, mixed>|list<string> $fileIds Permission prefilter or legacy explicit IDs.
      * @return list<array{file_id:string, score:float}>
      */
     public function search(
@@ -195,12 +196,13 @@ class ElasticsearchClient
         if ($fileIds === []) {
             return [];
         }
-        if (count($fileIds) > 50000) {
+        if (array_is_list($fileIds) && count($fileIds) > 50000) {
             throw new \InvalidArgumentException('Search scope must be batched.');
         }
         $limit = max(1, min(self::MAX_KNN_RESULTS, $limit));
         $k = $limit;
-        $filter = ['bool' => ['filter' => [['ids' => ['values' => $fileIds]]]]];
+        $permission = array_is_list($fileIds) ? ['ids' => ['values' => $fileIds]] : $fileIds;
+        $filter = ['bool' => ['filter' => [$permission]]];
         if ($modelFingerprint !== null) {
             $filter['bool']['filter'][] = ['term' => ['model_fingerprint' => $modelFingerprint]];
         }
@@ -236,6 +238,7 @@ class ElasticsearchClient
             $body['pit'] = ['id' => $snapshotId, 'keep_alive' => '2m'];
             $path = '/_search';
         }
+        $body['timeout'] = '25s';
         $response = $this->request('POST', $path . '?allow_partial_search_results=false', $body);
         if ($snapshotId !== null && is_string($response['pit_id'] ?? null)) {
             $snapshotId = $response['pit_id'];
@@ -260,6 +263,158 @@ class ElasticsearchClient
         }
 
         return $results;
+    }
+
+    /** Additive mapping upgrade: vectors and their mapping stay untouched. */
+    public function ensureStructureMapping(string $index): void
+    {
+        $this->assertManagedIndexName($index);
+        if (isset($this->structureMappings[$index])) { return; }
+        $this->request('PUT', '/' . rawurlencode($index) . '/_mapping', ['properties' => [
+            'structure_schema' => ['type' => 'integer'],
+            'storage_numeric_id' => ['type' => 'long'],
+            'ancestor_ids' => ['type' => 'long'],
+        ]]);
+        $this->structureMappings[$index] = true;
+    }
+
+    /** Count only up to the exact-search threshold, at the same PIT as ranking.
+     * @param array<string, mixed> $filter
+     */
+    public function scopeIsExact(string $index, array $filter, string $fingerprint, string &$snapshotId, int $threshold): bool
+    {
+        $this->assertManagedIndexName($index);
+        $response = $this->request('POST', '/_search?allow_partial_search_results=false', [
+            'size' => 0, 'track_total_hits' => $threshold + 1, 'timeout' => '25s',
+            'pit' => ['id' => $snapshotId, 'keep_alive' => '2m'],
+            'query' => ['bool' => ['filter' => [$filter,
+                ['term' => ['structure_schema' => 2]], ['term' => ['model_fingerprint' => $fingerprint]],
+            ]]],
+        ]);
+        $this->assertCompleteSearch($response);
+        if (is_string($response['pit_id'] ?? null)) { $snapshotId = $response['pit_id']; }
+        $total = $response['hits']['total'] ?? null;
+        if (!is_array($total) || !is_int($total['value'] ?? null)) {
+            throw new ExternalServiceException('Search scope count is unavailable.', 'search_incomplete', true);
+        }
+        return ($total['relation'] ?? '') === 'eq' && $total['value'] <= $threshold;
+    }
+
+    /** @param array<string, mixed> $permission
+     * @param list<float|int> $vector
+     * @return list<array{file_id:string, score:float}>
+     */
+    public function searchScope(string $index, array $vector, int $limit, array $permission,
+        ?string $exclude, bool $exact, string $fingerprint, string &$snapshotId): array
+    {
+        $filter = ['bool' => ['filter' => [$permission, ['term' => ['structure_schema' => 2]]]]];
+        return $this->search($index, $vector, $limit, $filter, $exclude, $exact, $fingerprint, $snapshotId);
+    }
+
+    /** @param array<string, mixed> $permission
+     * @param list<int> $rootIds
+     */
+    public function scopeContainsRepair(string $index, array $permission, array $rootIds): bool
+    {
+        $this->assertManagedIndexName($index);
+        $alternatives = [];
+        foreach (array_chunk($rootIds, 50000) as $chunk) {
+            $alternatives[] = ['terms' => ['ancestor_ids' => $chunk]];
+            $alternatives[] = ['ids' => ['values' => array_map('strval', $chunk)]];
+        }
+        if ($alternatives === []) { return false; }
+        $response = $this->request('POST', '/' . rawurlencode($index) . '/_search?allow_partial_search_results=false', [
+            'size' => 0, 'track_total_hits' => 1, 'timeout' => '25s',
+            'query' => ['bool' => ['filter' => [$permission,
+                ['bool' => ['should' => $alternatives, 'minimum_should_match' => 1]],
+            ]]],
+        ]);
+        $this->assertCompleteSearch($response);
+        $value = $response['hits']['total']['value'] ?? null;
+        if (!is_int($value)) { throw new ExternalServiceException('Repair scope is unavailable.', 'search_incomplete', true); }
+        return $value > 0;
+    }
+
+    public function documentCount(string $index): int
+    {
+        $this->assertManagedIndexName($index);
+        $response = $this->request('POST', '/' . rawurlencode($index) . '/_count', ['query' => ['match_all' => new \stdClass()]]);
+        $this->assertCompleteSearch($response);
+        if (!is_int($response['count'] ?? null)) {
+            throw new ExternalServiceException('Index count is unavailable.', 'search_incomplete', true);
+        }
+        return $response['count'];
+    }
+
+    /** @return list<string> */
+    public function structureRepairBatch(string $index, int $rootId, string $after): array
+    {
+        $this->assertManagedIndexName($index);
+        $body = ['size' => 200, '_source' => false, 'track_total_hits' => false, 'timeout' => '25s',
+            'sort' => [['nextcloud_file_id' => 'asc']],
+            'query' => $rootId === 0 ? ['match_all' => new \stdClass()] : ['bool' => ['should' => [
+                ['term' => ['ancestor_ids' => $rootId]], ['ids' => ['values' => [(string)$rootId]]],
+            ], 'minimum_should_match' => 1]],
+        ];
+        if ($after !== '') { $body['search_after'] = [$after]; }
+        $response = $this->request('POST', '/' . rawurlencode($index) . '/_search?allow_partial_search_results=false', $body);
+        $this->assertCompleteSearch($response);
+        $ids = [];
+        foreach ($response['hits']['hits'] ?? [] as $hit) {
+            if (is_string($hit['_id'] ?? null)) { $ids[] = $hit['_id']; }
+        }
+        return $ids;
+    }
+
+    /** Update existing documents only. Missing/deleted documents are never resurrected.
+     * @param array<string, array<string, mixed>|null> $changes keyed by file id, null = delete
+     * @return array<string, string> per-file errors
+     */
+    public function updateStructureBatch(string $index, array $changes): array
+    {
+        $this->assertManagedIndexName($index);
+        if ($changes === []) { return []; }
+        $lines = [];
+        foreach ($changes as $id => $metadata) {
+            $lines[] = json_encode([$metadata === null ? 'delete' : 'update' => [
+                '_index' => $index, '_id' => (string)$id,
+            ]], JSON_THROW_ON_ERROR);
+            if ($metadata !== null) {
+                $lines[] = json_encode(['script' => [
+                    'lang' => 'painless',
+                    'source' => "boolean changed = ctx._source.containsKey('storage_id'); for (entry in params.metadata.entrySet()) { def previous = ctx._source[entry.getKey()]; if (previous == null || !previous.equals(entry.getValue())) { ctx._source[entry.getKey()] = entry.getValue(); changed = true; } } if (changed) { ctx._source.remove('storage_id'); } else { ctx.op = 'noop'; }",
+                    'params' => ['metadata' => $metadata],
+                ]], JSON_THROW_ON_ERROR);
+            }
+        }
+        $response = $this->request('POST', '/_bulk', null, [], implode("\n", $lines) . "\n");
+        $items = $response['items'] ?? null;
+        if (!is_array($items) || count($items) !== count($changes)) {
+            throw new ExternalServiceException('Metadata bulk response is incomplete.', 'structure_bulk_incomplete', true);
+        }
+        $errors = [];
+        $expectedIds = array_map('strval', array_keys($changes));
+        foreach ($items as $position => $item) {
+            $outcome = $item['update'] ?? $item['delete'] ?? [];
+            $status = (int)($outcome['status'] ?? 0);
+            $id = (string)($outcome['_id'] ?? '');
+            if ($id !== ($expectedIds[$position] ?? null) || $status < 100) {
+                throw new ExternalServiceException('Metadata bulk result does not match the request.', 'structure_bulk_incomplete', true);
+            }
+            if ($status < 200 || $status >= 300) {
+                // A file deleted concurrently is already absent as intended.
+                if ($status !== 404 || !isset($item['delete'])) {
+                    $errors[$id] = (string)($outcome['error']['type'] ?? 'structure_update_failed');
+                }
+            }
+        }
+        return $errors;
+    }
+
+    public function refreshIndex(string $index): void
+    {
+        $this->assertManagedIndexName($index);
+        $this->assertCompleteSearch($this->request('POST', '/' . rawurlencode($index) . '/_refresh'));
     }
 
     /** @param array<string, mixed> $response */
@@ -323,6 +478,7 @@ class ElasticsearchClient
         string $path,
         ?array $body = null,
         array $overrides = [],
+        ?string $ndjson = null,
     ): array {
         $connection = $this->connectionConfig->getElasticsearchConnection($overrides);
         $url = rtrim($connection['url'], '/');
@@ -350,7 +506,10 @@ class ElasticsearchClient
         if ($connection['api_key'] === '' && $connection['username'] !== '') {
             $options['auth'] = [$connection['username'], $connection['password']];
         }
-        if ($body !== null) {
+        if ($ndjson !== null) {
+            $options['headers']['Content-Type'] = 'application/x-ndjson';
+            $options['body'] = $ndjson;
+        } elseif ($body !== null) {
             $options['headers']['Content-Type'] = 'application/json';
             $options['body'] = json_encode($body, JSON_THROW_ON_ERROR);
         }

@@ -22,7 +22,8 @@ use OCA\MediaEmbeddingConnector\Db\SearchSessionRepository;
 use OCA\MediaEmbeddingConnector\Exception\ExternalServiceException;
 use OCA\MediaEmbeddingConnector\Service\FileStatusExportService;
 use OCA\MediaEmbeddingConnector\Service\ImageSearchService;
-use OCA\MediaEmbeddingConnector\Service\VisibleFileScope;
+use OCA\MediaEmbeddingConnector\Service\ScopeSearchScope;
+use OCA\MediaEmbeddingConnector\Db\StructureMetadataRepository;
 use OCP\Files\IRootFolder;
 use OCP\IUser;
 use OCP\IUserManager;
@@ -69,14 +70,22 @@ try {
 
     asUser($viewer);
     $own = $root->getUserFolder($viewer->getUID())->newFile('contract-owned.png', $png);
-    $scope = Server::get(VisibleFileScope::class);
-    $ids = [];
-    foreach ($scope->batches($viewer->getUID()) as $batch) {
-        array_push($ids, ...$batch);
-    }
-    check(in_array((string)$own->getId(), $ids, true), 'Own photo missing from scope.');
-    check(in_array((string)$shared->getId(), $ids, true), 'Received share missing from scope.');
-    check(!in_array((string)$private->getId(), $ids, true), 'Private photo leaked into scope.');
+    $scope = Server::get(ScopeSearchScope::class);
+    $metadata = Server::get(StructureMetadataRepository::class);
+    $filter = $scope->resolve($viewer->getUID());
+    $allows = static function (int $id, array $filter) use ($metadata): bool {
+        $structure = $metadata->metadata($id);
+        foreach ($filter['bool']['should'] ?? [] as $clause) {
+            if (in_array((string)$id, $clause['ids']['values'] ?? [], true)
+                || array_intersect($structure['ancestor_ids'] ?? [], $clause['terms']['ancestor_ids'] ?? []) !== []) {
+                return true;
+            }
+        }
+        return false;
+    };
+    check($allows($own->getId(), $filter), 'Own photo missing from scope.');
+    check($allows($shared->getId(), $filter), 'Received share missing from scope.');
+    check(!$allows($private->getId(), $filter), 'Private photo leaked into scope.');
 
     $sessions = Server::get(SearchSessionRepository::class);
     $session = $sessions->create($viewer->getUID(), [
@@ -101,6 +110,7 @@ try {
     asUser($owner);
     $shares->deleteShare($share);
     asUser($viewer);
+    check(!$allows($shared->getId(), $scope->resolve($viewer->getUID())), 'Revoked share remains in new live scope.');
     $page = $search->searchPage($viewer->getUID(), $session['session_id'], 49, 0);
     check(array_column($page['results'], 'file_id') === [(string)$own->getId()],
         'Revoked share must disappear from a cached search session.');
@@ -110,7 +120,10 @@ try {
         $stream = $exports->create($status);
         $export = json_decode(stream_get_contents($stream), true, 512, JSON_THROW_ON_ERROR);
         fclose($stream);
-        check($export['status'] === $status && is_array($export['files']), 'Invalid status export.');
+        check(is_array($export) && array_is_list($export), 'Invalid status export.');
+        foreach ($export as $entry) {
+            check(array_keys($entry) === ['id', 'last_error', 'storage_path'], 'Unexpected export fields.');
+        }
     }
     check($sessions->purgeExpired() >= 0, 'Session cleanup failed.');
 } finally {

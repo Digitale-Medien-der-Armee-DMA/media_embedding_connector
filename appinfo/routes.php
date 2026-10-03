@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 return [
     'routes' => [
+        ['name' => 'admin#structureMigration', 'url' => '/settings/structure', 'verb' => 'POST'],
+        ['name' => 'admin#downloadStructureErrors', 'url' => '/settings/structure/errors', 'verb' => 'POST'],
         [
             'name' => 'admin#save',
             'url' => '/settings',

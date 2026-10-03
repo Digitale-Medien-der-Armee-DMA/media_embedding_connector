@@ -38,6 +38,8 @@ class UninstallCleanup implements IRepairStep
      * @var list<string>
      */
     private const TABLES = [
+        'media_embed_structure',
+        'media_embed_struct_err',
         'media_embed_search',
         'media_embed_audit',
         'media_embed_state',
@@ -50,6 +52,7 @@ class UninstallCleanup implements IRepairStep
      * @var list<class-string>
      */
     private const JOBS = [
+        \OCA\MediaEmbeddingConnector\BackgroundJob\StructureMigrationJob::class,
         ProcessIndexJob::class,
         ImageEmbeddingWorkerJob::class,
         BackfillScanJob::class,

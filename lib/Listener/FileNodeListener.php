@@ -15,6 +15,7 @@ use OCP\Files\Events\Node\NodeDeletedEvent;
 use OCP\Files\Events\Node\NodeRenamedEvent;
 use OCP\Files\Events\Node\NodeWrittenEvent;
 use OCP\Files\File;
+use OCA\MediaEmbeddingConnector\Service\StructureMigrationService;
 
 /** @template-implements IEventListener<NodeCreatedEvent|NodeWrittenEvent|NodeRenamedEvent|NodeDeletedEvent> */
 class FileNodeListener implements IEventListener
@@ -24,11 +25,19 @@ class FileNodeListener implements IEventListener
         private AppAccessPolicy $accessPolicy,
         private ImageEligibilityService $eligibilityService,
         private IndexJobScheduler $scheduler,
+        private StructureMigrationService $structureMigration,
     ) {
     }
 
     public function handle(Event $event): void
     {
+        if ($event instanceof NodeRenamedEvent) {
+            $this->structureMigration->enqueueRepair((int)$event->getTarget()->getId());
+        } elseif ($event instanceof NodeDeletedEvent) {
+            // Trash can retain filecache rows. A deletion must remove vectors
+            // rather than merely moving their ancestry into the trash tree.
+            $this->structureMigration->enqueueRepair((int)$event->getNode()->getId(), true);
+        }
         if (!$this->config->isIndexingEnabled()) {
             return;
         }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.4 - 2026-10-04
+
+- Introduce **ScopeSearch**: resolve live readable folder roots and single-file
+  shares without enumerating each user's full photo inventory; union overlapping
+  share routes before exact/ANN vector ranking (`num_candidates=10000`).
+- Upgrade existing vectors in place with numeric storage and folder ancestry
+  metadata. Add persistent, restartable migration/repair jobs, subtree move and
+  trash deletion handling, and scope-specific waiting during repairs.
+- Add the compact schema-update status and error download, restart, pause, and
+  resume controls. Remove legacy ES string storage identifiers during migration.
+
+- Simplify administrator status downloads to JSON arrays containing only the
+  record ID, last error (or skip reason), and storage-relative path.
+- Process index deletion jobs without contacting the embedding service, so an
+  unavailable or invalid model response cannot prevent removal of deleted files.
+
 ## 0.4.3 - 2026-10-03
 
 - Update all locked brace-expansion copies and DOMPurify to patched releases and

@@ -57,6 +57,7 @@ class AdminController extends Controller
         private IUserManager $userManager,
         private LoggerInterface $logger,
         private FileStatusExportService $fileStatusExport,
+        private \OCA\MediaEmbeddingConnector\Service\StructureMigrationService $structureMigration,
     ) {
         parent::__construct(Application::APP_ID, $request);
     }
@@ -236,12 +237,38 @@ class AdminController extends Controller
             'indexing_enabled' => $this->config->isIndexingEnabled(),
             'lifecycle' => $this->indexLifecycle->getStatus(),
             'backfill' => $this->backfillStatus(),
+            'structure_migration' => $this->structureMigration->getStatus(),
             'jobs' => $this->jobs->getStats(),
             'indexed_files' => $this->indexedFiles->count(),
             'skip_markers' => $this->skipMarkerRepository->getStats(),
             'indices' => $indices,
             'audit' => $this->audit->latest(30),
         ]);
+    }
+
+    public function structureMigration(): DataResponse
+    {
+        try {
+            $action = (string)$this->request->getParam('action', '');
+            $status = $this->structureMigration->control($action);
+            $this->recordAudit('structure_' . $action, 'index', null, 'success');
+            return new DataResponse(['success' => true, 'structure_migration' => $status]);
+        } catch (\InvalidArgumentException) {
+            return new DataResponse(['success' => false, 'error' => 'invalid_migration_action'], 400);
+        } catch (\Throwable $e) {
+            return $this->externalError($e, 'structure_update_failed');
+        }
+    }
+
+    public function downloadStructureErrors(): StreamResponse|DataResponse
+    {
+        try {
+            return new StreamResponse($this->structureMigration->errorExport(), 200, [
+                'Content-Type' => 'application/json; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="scope-search-errors.json"',
+                'Cache-Control' => 'no-store', 'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (\Throwable $e) { return $this->externalError($e, 'status_export_failed'); }
     }
 
     public function prepareIndex(): DataResponse

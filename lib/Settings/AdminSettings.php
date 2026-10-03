@@ -48,6 +48,8 @@ class AdminSettings implements ISettings
             'probe_url' => $this->route('probe'),
             'test_medialab_url' => $this->route('testMediaLab'),
             'test_elasticsearch_url' => $this->route('testElasticsearch'),
+            'structure_migration_url' => $this->route('structureMigration'),
+            'structure_errors_url' => $this->route('downloadStructureErrors'),
             'status_url' => $this->route('status'),
             'download_status_url' => $this->route('downloadStatus'),
             'prepare_index_url' => $this->route('prepareIndex'),

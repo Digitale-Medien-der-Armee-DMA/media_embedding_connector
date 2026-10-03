@@ -401,6 +401,9 @@ async function load(append) {
 		if (error.message === 'search_session_expired') {
 			hasMore.value = false;
 			errorMessage.value = t('This search has expired. Start a new search.');
+		} else if (error.message === 'search_index_updating') {
+			hasMore.value = false;
+			errorMessage.value = t('The search index is being updated. Please try again later.');
 		} else if (['search_model_mismatch', 'search_model_unknown'].includes(error.message)) {
 			hasMore.value = false;
 			errorMessage.value = t('The search index and embedding model do not match. Contact your administrator.');

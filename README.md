@@ -81,6 +81,12 @@ changes, and maintenance.
 
 ## Search
 
+Version 0.4.4 uses **ScopeSearch**: live readable folder roots and individual
+shares pre-filter Elasticsearch before vector ranking. Existing embeddings are
+retained during the restartable structure-metadata update shown in administration.
+Standard inherited Nextcloud shares on local/NFS storage are supported.
+
+
 Open **Media Search** in Nextcloud navigation. Enter a description, select an
 image beside the search field, or drop an image onto the search field or results area.
 

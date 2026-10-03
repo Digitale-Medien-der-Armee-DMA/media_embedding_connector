@@ -52,72 +52,93 @@ failures only after the underlying service has recovered.
 
 Click **Queued jobs**, **Running jobs**, **Failed jobs**, or **Skipped files**
 under **Operational status** to download a JSON file containing the corresponding
-records. Downloads require administrator access. They include file IDs, names,
-numeric storage IDs and storage-relative paths, plus queue details or skip reasons.
-Missing file-cache entries retain their records with null file metadata. Skipped
+records. Downloads require administrator access. Each download is a JSON array
+with only `id`, `last_error`, and `storage_path`. `id` is the job or skip-marker
+record ID, not the Nextcloud file ID. For skipped files, `last_error` contains the
+skip reason. Paths are storage-relative. Missing file-cache entries retain their
+records with a null path; a deleted file's former path cannot be reconstructed
+from that entry. Skipped
 files are exported from persistent skip markers, matching the displayed counter;
 the other downloads use job records. There is no fixed record limit. Export
 generation uses paginated database reads and a temporary file, which is deleted
-automatically. Job statuses can change during generation, so the exported count
+automatically. Job statuses can change during generation, so the number of entries
 may differ from a previously refreshed status card.
 
-### Search coverage, quality and sessions
+### ScopeSearch: search coverage, quality and sessions
 
-Every new search enumerates all supported, readable image IDs through the user's
-Nextcloud filesystem, including received shares and mounted group/external folders.
-Candidate IDs are read in keyset pages from the file-cache roots of the current
-mounts, then checked through Nextcloud's permission-aware filesystem search with
-`fileid IN (...)`. Database candidates alone never grant access. This avoids the
-unsupported `fileid > ...` filesystem comparison and deep offset pagination.
-There is no total scope cap. Enumeration is live for each new query so unobserved
-third-party ACL or mount changes cannot leave a shared permission cache stale.
-The IDs form an Elasticsearch **pre-filter**; ranking never starts with global
-hits that are filtered afterwards. Up to 50,000 IDs are sent per scope block and
-all blocks contribute to the merged ranking.
+Version 0.4.4 uses **ScopeSearch**. Each new search resolves the user's own Files
+root and the actual, readable roots of received mounts. Shared folders become
+ancestor-ID filters; individually shared files become explicit file-ID filters.
+It does not list the images or walk the subfolders before searching. Multiple
+group memberships and overlapping share routes form a union and produce one hit
+per file. A shared subfolder never grants its parent's entire storage.
 
-A complete scope of at most 10,000 image IDs uses exact cosine vector scoring.
-Larger scopes use approximate kNN with `num_candidates=10000` per shard per block.
-The exact threshold is a starting value, not a benchmark for a particular server.
-Both methods require normalized cosine vectors and filter by the search index's
-model fingerprint. ANN does not guarantee exact nearest neighbours. Only suitable
-images already indexed under that model can be found; skipped, failed and missing
-images need indexing first.
+ScopeSearch supports standard Nextcloud user/group shares and inherited readable
+folder permissions on local storage, including NFS-backed local storage and
+Groupfolders without advanced ACLs. External mounts and detected advanced
+Groupfolders ACL wrappers fail explicitly; they require a separate permission
+adapter. Technical mount failures abort the search rather than silently omit a
+region. Nextcloud remains the authority for access; no per-user photo ACL list is
+stored in Elasticsearch.
 
-The actual search alias target and its model are resolved before embedding. A
-short-lived Elasticsearch point in time keeps all scope-block searches consistent.
-The merged ranking retains at most 500 results to bound retrieval cost, storage and
-permission checks. The default page shows 49 images, including the reference for
-similar-image search. When the pool is exhausted and more candidates existed, the
-UI asks the user to refine the query. The result cap never limits the file scope
-searched. New indices explicitly use unquantized `hnsw`; existing vector mappings
-are not changed by this update.
+Elasticsearch receives this permission filter **before** vector ranking. A
+bounded count at the same point in time selects exact cosine scoring when at most
+10,000 indexed, model-compatible documents match. Larger scopes use approximate
+kNN with `num_candidates=10000` per shard. Every eligible indexed image in the
+allowed scope participates; ANN does not guarantee mathematically exact nearest
+neighbours. New vector mappings use unquantized `hnsw`; existing vectors and their
+mapping are preserved. Skipped, failed, unindexed, or model-incompatible images
+still require normal indexing.
 
-Ranked IDs and scores are stored as an owner-bound, random-token search session in
-Nextcloud for 15 minutes. Query text, uploaded images, query vectors and the full
-permission list are not stored in these sessions. Subsequent pages reuse the
-ranking without re-embedding, re-uploading, filesystem enumeration or ES searches.
-Each page checks current Nextcloud read permissions, skips deleted/revoked files,
-and fills from later candidates without shifting earlier pages. Technical lookup
-errors fail explicitly. New grants and newly indexed files appear in a **new**
-search; the current session keeps its original ordering. Expired sessions require
-a new search. Failed paging stops automatic retries and offers a manual retry.
+The ranking retains at most 500 results, with 49 shown on the default page. A
+15-minute, owner-bound session stores only IDs, scores and technical search
+context. Further pages reuse the ranking. Each returned image is resolved through
+the user's current filesystem and checked for read access; deleted/revoked files
+are replaced from later candidates. Names and visible paths are obtained only
+from Nextcloud. New grants become available on a new search. A changed MediaLab
+model is rejected if it does not match the actual search alias target.
 
-New index mappings contain the model identity in `_meta.embedding_contract`.
-Existing indices fall back to the model fields on an indexed document, so no
-re-embedding is required for this change. An empty legacy index with no model
-metadata cannot be searched until its model identity is established. The MediaLab
-adapter currently uses default-model inference: if its default model differs from
-the search index, text/upload searches stop with an explicit mismatch instead of
-returning incompatible results. Existing sessions and indexed-image similarity
-search do not need MediaLab inference. Model fingerprints are checked again on
-embedding responses to detect changes during a request.
+### Updating the structure metadata (schema 1 → 2)
 
-Version 0.4.3 adds `media_embed_search` through the app's database migration.
-Expired rows are cleaned by a five-minute Nextcloud background job and sessions are
-removed when the app is uninstalled. Upgrade the app and run its normal Nextcloud
-migration before using the new frontend. First-search latency still includes full
-live scope enumeration: measure on the production dataset, particularly for users
-with access to hundreds of thousands of images. Cached pages avoid that work.
+The normal 0.4.4 app upgrade creates `media_embed_structure` and
+`media_embed_struct_err`. The first cron or continuous-worker slice starts the
+metadata upgrade automatically once an index is prepared. It adds
+`structure_schema`, `storage_numeric_id`, and `ancestor_ids` to the existing
+managed indices. It scans the actual search and write index documents in keyset
+batches, including documents absent from the connector's tracking table, and
+updates structure from Nextcloud's filecache using indexed file IDs and
+`storage + path_hash` lookups for ancestors. Per-file locks prevent concurrent embedding writes from being overwritten by
+stale metadata updates. It never reads image bytes or calls
+the embedding service. Legacy string `storage_id` values are removed from ES
+because they can contain a user identifier. No new vector index or re-embedding
+is required; unchanged metadata is a no-op on subsequent passes. Existing index names and freshness records remain valid.
+
+Administration shows three lines: the schema update, its status, and
+`Processed: done / total`. **Download errors**, **Restart**, **Pause**, and
+**Resume** control the same persistent operation. Control requests are stored independently of worker progress and remain
+responsive during a running batch. Pause and Restart take effect between
+batches; Resume preserves the cursor. Restart (also Resume after a failed full
+run) starts a fresh metadata pass and retains vectors. Error downloads contain
+only `id` (Nextcloud file ID; 0 denotes a run-wide error), `last_error`, and
+`storage_path`. Paths are storage-relative and can be null if a file was already
+removed. Totals count ES documents across distinct search/write indices and may
+differ from the current file count if files change during the pass.
+
+Initial search waits until the metadata pass succeeds. Ordinary file indexing
+writes schema-2 structure immediately. Moves and deletions enqueue persistent,
+targeted repairs for the affected file/tree; deleting into the trash removes its
+vectors explicitly. During a repair, only searches overlapping its old or new
+scope wait, while unrelated users can continue searching. Failed repairs remain
+queued and expose errors instead of quietly serving incomplete affected scopes.
+The metadata worker runs independently of the embedding/backfill enable switch;
+use the dedicated metadata Pause button to pause it. A manual Restart also
+reconciles structure after filecache changes outside normal Nextcloud events.
+
+Cron advances the run for a bounded slice once a minute. For large inventories,
+use the continuous worker below to avoid cron gaps. A running ES request can
+outlive a slice's time budget by its request timeout. Benchmark real mount
+resolution, ranking, and live result checks on your deployment; a million-image
+load or a particular latency is not certified by functional contract tests.
 
 ### How indexing runs
 

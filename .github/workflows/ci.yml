@@ -154,6 +154,20 @@ jobs:
   nextcloud-runtime:
     name: Nextcloud 35 runtime contract
     runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl --fail http://localhost:9200/_cluster/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -161,6 +175,8 @@ jobs:
       - name: Start isolated Nextcloud
         run: |
           docker run -d --name connector-nextcloud \
+            --add-host host.docker.internal:host-gateway \
+            -e SCOPE_ES_URL=http://host.docker.internal:9200 \
             --mount "type=bind,source=${GITHUB_WORKSPACE},target=/var/www/html/custom_apps/media_embedding_connector,readonly" \
             -e NEXTCLOUD_ADMIN_USER=contract-admin \
             -e NEXTCLOUD_ADMIN_PASSWORD=local-test-only-password \
@@ -191,6 +207,8 @@ jobs:
           docker exec -u www-data connector-nextcloud php occ media_embedding_connector:worker --help
           docker exec -u www-data connector-nextcloud \
             php custom_apps/media_embedding_connector/tests/Integration/nextcloud_contract.php
+          docker exec -u www-data connector-nextcloud \
+            php custom_apps/media_embedding_connector/tests/Integration/scope_search_contract.php
 
       - name: Show Nextcloud startup logs on failure
         if: failure()

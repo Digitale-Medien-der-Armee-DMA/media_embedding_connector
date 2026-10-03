@@ -216,6 +216,7 @@ class SearchController extends Controller
         $this->logger->warning('Media search failed', $context);
         $status = match ($code) {
             'search_session_expired' => 410,
+            'search_index_updating' => 409,
             'file_not_accessible', 'access_denied' => 403,
             'search_model_mismatch', 'search_model_unknown' => 409,
             default => 502,

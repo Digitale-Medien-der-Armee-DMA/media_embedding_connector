@@ -26,20 +26,19 @@ class FileStatusExportService
             throw new \RuntimeException('Export temporary file could not be created.');
         }
         try {
-            $metadata = json_encode([
-                'status' => $status,
-                'generated_at' => gmdate('c'),
-                'path_basis' => 'storage_relative',
-                'consistency' => 'live_status_during_export',
-            ], JSON_THROW_ON_ERROR);
-            $this->write($stream, substr($metadata, 0, -1) . ",\"files\":[\n");
+            $this->write($stream, "[\n");
             $count = 0;
             foreach ($this->repository->rows($status) as $row) {
+                $entry = [
+                    'id' => (int)$row['id'],
+                    'last_error' => $status === 'skipped' ? ($row['reason'] ?? null) : ($row['last_error'] ?? null),
+                    'storage_path' => $row['storage_path'] ?? null,
+                ];
                 $this->write($stream, ($count > 0 ? ",\n" : '')
-                    . json_encode($row, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE));
+                    . json_encode($entry, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 ++$count;
             }
-            $this->write($stream, "\n],\"count\":" . $count . '}');
+            $this->write($stream, "\n]");
             rewind($stream);
             return $stream;
         } catch (\Throwable $e) {

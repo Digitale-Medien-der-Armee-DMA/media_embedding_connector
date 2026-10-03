@@ -39,6 +39,7 @@
 			v-model:disabled-mime-types="form.disabledImageMimeTypes"
 			:indexing-enabled="indexingEnabled"
 			:backfill="status.backfill ?? null"
+			:structure-migration="status.structure_migration ?? null"
 			:now="statusFetchedAt"
 			:busy="busy"
 			@prepare-index="prepareIndex"
@@ -47,6 +48,8 @@
 			@start-backfill="startBackfill"
 			@pause-backfill="setBackfillPaused(true)"
 			@resume-backfill="setBackfillPaused(false)"
+			@structure-control="controlStructure"
+			@structure-errors="downloadStructureErrors"
 			@retry-jobs="retryJobs">
 		<template #save>
 		<div class="mec-save mec-save--inline">
@@ -159,11 +162,11 @@ const confirmation = ref(null);
 const skipFileId = ref('');
 
 /** Native download keeps large exports out of browser memory and sends CSRF. */
-function downloadStatus(status) {
+function downloadStatus(status, url = state.download_status_url) {
 	const form = document.createElement('form');
 	form.method = 'POST';
 	form.target = '_blank';
-	form.action = state.download_status_url;
+	form.action = url;
 	for (const [name, value] of Object.entries({ status, requesttoken: getRequestToken() ?? '' })) {
 		const input = document.createElement('input');
 		input.type = 'hidden';
@@ -175,6 +178,15 @@ function downloadStatus(status) {
 	form.submit();
 	form.remove();
 }
+function downloadStructureErrors() {
+	downloadStatus('', state.structure_errors_url);
+}
+
+async function controlStructure(action) {
+	const body = new URLSearchParams({ action });
+	await run(() => post(state.structure_migration_url, body));
+}
+
 const skipReason = ref('');
 const probeText = ref('');
 
@@ -369,7 +381,9 @@ function scheduleStatusPoll() {
 	clearTimeout(statusPollTimer);
 	const backfill = status.value.backfill ?? {};
 	const jobs = status.value.jobs ?? {};
-	const active = (backfill.status === 'running' && !backfill.paused)
+	const migration = status.value.structure_migration ?? {};
+	const active = (!migration.paused && (migration.restart_pending || migration.repair_pending || ['idle', 'running'].includes(migration.status)))
+		|| (backfill.status === 'running' && !backfill.paused)
 		|| Number(jobs.queued ?? 0) > 0
 		|| Number(jobs.running ?? 0) > 0;
 	if (active) {

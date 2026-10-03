@@ -10,6 +10,7 @@ use OCA\MediaEmbeddingConnector\Exception\ExternalServiceException;
 use OCP\Files\File;
 use OCP\Files\IMimeTypeDetector;
 use OCP\Files\IRootFolder;
+use OCP\Lock\{ILockingProvider, LockedException};
 
 class FileIndexingService
 {
@@ -26,6 +27,8 @@ class FileIndexingService
         private AppAccessPolicy $accessPolicy,
         private IndexedFileRepository $indexedFiles,
         private SkipMarkerRepository $skipMarkers,
+        private \OCA\MediaEmbeddingConnector\Db\StructureMetadataRepository $structureMetadata,
+        private ILockingProvider $structureLocks,
     ) {
     }
 
@@ -34,6 +37,11 @@ class FileIndexingService
      */
     public function process(array $job): string
     {
+        // Removing a vector must work even when the embedding service is unavailable.
+        if (($job['action'] ?? '') === 'delete') {
+            $this->delete((string)$job['file_id']);
+            return 'indexed';
+        }
         $contract = $this->contractService->getDefaultModelContract();
         $prepared = $this->prepareImageForEmbedding($job, $contract);
         if (($prepared['status'] ?? null) !== 'ready') {
@@ -114,6 +122,19 @@ class FileIndexingService
         $writeIndex = (string)($lifecycle['write_index'] ?? '');
         $indexed = $this->indexedFiles->findByFileIds([$fileId])[$fileId] ?? null;
         if (IndexFreshness::isCurrent($indexed, null, $etag, $fingerprint, $writeIndex)) {
+            $lock = $this->acquireStructureLock($fileId);
+            try {
+                $this->structureMetadata->resetCache();
+                $metadata = $this->structureMetadata->metadata((int)$fileId);
+                $this->elasticsearch->ensureStructureMapping($writeIndex);
+                $errors = $this->elasticsearch->updateStructureBatch($writeIndex, [$fileId => $metadata]);
+                if ($metadata === null && $errors === []) {
+                    $this->indexedFiles->delete($fileId);
+                }
+                if ($errors !== []) {
+                    throw new ExternalServiceException('Structure metadata update failed.', 'structure_update_failed', true);
+                }
+            } finally { $this->structureLocks->releaseLock($lock, ILockingProvider::LOCK_EXCLUSIVE); }
             return ['status' => 'indexed', 'file_id' => $fileId, 'reason' => 'unchanged'];
         }
         $skip = $this->skipMarkers->findByFileIds([$fileId])[$fileId] ?? null;
@@ -207,43 +228,51 @@ class FileIndexingService
         if ($indexName === '') {
             throw new ExternalServiceException('Prepared write index is unavailable.', 'index_not_prepared');
         }
-        $document = [
-            'nextcloud_file_id' => $fileId,
-            'storage_id' => $storageId,
-            'etag' => $node->getEtag(),
-            'mime_type' => (string)$prepared['mime_type'],
-            'size_bytes' => (int)$node->getSize(),
-            'mtime' => gmdate('c', $node->getMTime()),
-            'image_vector' => $vector,
-            'model_id' => $response['model_id'] ?? $contract['model_id'],
-            'model_name' => $response['model_name'] ?? $contract['model_name'],
-            'model_version' => $response['model_version'] ?? $contract['model_version'],
-            'model_fingerprint' => $response['model_fingerprint'] ?? $contract['model_fingerprint'],
-            'embedding_dim' => $response['embedding_dim'] ?? $contract['embedding_dim'],
-            'normalized' => $response['normalized'] ?? $contract['normalized'],
-            'similarity' => $response['similarity'] ?? $contract['similarity'],
-            'technical_metadata' => $response['technical_metadata'] ?? null,
-            'indexed_at' => gmdate('c'),
-            'embedding_request_id' => $response['request_id'] ?? null,
-        ];
-        $this->elasticsearch->upsertDocument($indexName, $fileId, $document);
-        $this->indexedFiles->upsert([
-            'file_id' => $fileId,
-            'storage_id' => $storageId,
-            'owner_uid' => $owner?->getUID() ?? $ownerUid,
-            'etag' => $node->getEtag(),
-            'mime_type' => (string)$prepared['mime_type'],
-            'size_bytes' => (int)$node->getSize(),
-            'mtime' => $node->getMTime(),
-            'index_name' => $indexName,
-            'model_id' => $document['model_id'],
-            'model_version' => $document['model_version'],
-            'embedding_dim' => $document['embedding_dim'],
-            'contract_version' => $contract['contract_version'] ?? '',
-            'model_fingerprint' => $document['model_fingerprint'],
-        ]);
-        $this->skipMarkers->resetFile($fileId);
-        return 'indexed';
+        $lock = $this->acquireStructureLock($fileId);
+        try {
+            $this->structureMetadata->resetCache();
+            $metadata = $this->structureMetadata->metadata((int)$fileId);
+            if ($metadata === null) {
+                throw new ExternalServiceException('File structure is unavailable.', 'structure_ancestry_unavailable', true);
+            }
+            $this->elasticsearch->ensureStructureMapping($indexName);
+            $document = $metadata + [
+                'nextcloud_file_id' => $fileId,
+                'etag' => $node->getEtag(),
+                'mime_type' => (string)$prepared['mime_type'],
+                'size_bytes' => (int)$node->getSize(),
+                'mtime' => gmdate('c', $node->getMTime()),
+                'image_vector' => $vector,
+                'model_id' => $response['model_id'] ?? $contract['model_id'],
+                'model_name' => $response['model_name'] ?? $contract['model_name'],
+                'model_version' => $response['model_version'] ?? $contract['model_version'],
+                'model_fingerprint' => $response['model_fingerprint'] ?? $contract['model_fingerprint'],
+                'embedding_dim' => $response['embedding_dim'] ?? $contract['embedding_dim'],
+                'normalized' => $response['normalized'] ?? $contract['normalized'],
+                'similarity' => $response['similarity'] ?? $contract['similarity'],
+                'technical_metadata' => $response['technical_metadata'] ?? null,
+                'indexed_at' => gmdate('c'),
+                'embedding_request_id' => $response['request_id'] ?? null,
+            ];
+            $this->elasticsearch->upsertDocument($indexName, $fileId, $document);
+            $this->indexedFiles->upsert([
+                'file_id' => $fileId,
+                'storage_id' => $storageId,
+                'owner_uid' => $owner?->getUID() ?? $ownerUid,
+                'etag' => $node->getEtag(),
+                'mime_type' => (string)$prepared['mime_type'],
+                'size_bytes' => (int)$node->getSize(),
+                'mtime' => $node->getMTime(),
+                'index_name' => $indexName,
+                'model_id' => $document['model_id'],
+                'model_version' => $document['model_version'],
+                'embedding_dim' => $document['embedding_dim'],
+                'contract_version' => $contract['contract_version'] ?? '',
+                'model_fingerprint' => $document['model_fingerprint'],
+            ]);
+            $this->skipMarkers->resetFile($fileId);
+            return 'indexed';
+        } finally { $this->structureLocks->releaseLock($lock, ILockingProvider::LOCK_EXCLUSIVE); }
     }
 
     /**
@@ -269,14 +298,27 @@ class FileIndexingService
         }
     }
 
+    private function acquireStructureLock(string $fileId): string
+    {
+        $lock = 'media_embedding_connector:structure:file:' . $fileId;
+        try { $this->structureLocks->acquireLock($lock, ILockingProvider::LOCK_EXCLUSIVE); }
+        catch (LockedException $e) {
+            throw new ExternalServiceException('File metadata is being updated.', 'structure_update_busy', true, null, 0, $e);
+        }
+        return $lock;
+    }
+
     private function delete(string $fileId): void
     {
-        $record = $this->indexedFiles->find($fileId);
-        if ($record !== null) {
-            $this->elasticsearch->deleteDocument((string)$record['index_name'], $fileId);
-        }
-        $this->elasticsearch->deleteDocument($this->indexLifecycle->getSearchAlias(), $fileId);
-        $this->indexedFiles->delete($fileId);
-        $this->skipMarkers->resetFile($fileId);
+        $lock = $this->acquireStructureLock($fileId);
+        try {
+            $record = $this->indexedFiles->find($fileId);
+            if ($record !== null) {
+                $this->elasticsearch->deleteDocument((string)$record['index_name'], $fileId);
+            }
+            $this->elasticsearch->deleteDocument($this->indexLifecycle->getSearchAlias(), $fileId);
+            $this->indexedFiles->delete($fileId);
+            $this->skipMarkers->resetFile($fileId);
+        } finally { $this->structureLocks->releaseLock($lock, ILockingProvider::LOCK_EXCLUSIVE); }
     }
 }

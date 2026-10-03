@@ -26,8 +26,9 @@ class ImageSearchService
         private IURLGenerator $urlGenerator,
         private ImageEligibilityService $eligibilityService,
         private ImageEmbeddingService $imageEmbeddingService,
-        private VisibleFileScope $visibleFileScope,
+        private ScopeSearchScope $visibleFileScope,
         private SearchSessionRepository $sessions,
+        private StructureMigrationService $structureMigration,
     ) {}
 
     /** @return array<string, mixed> */
@@ -91,6 +92,7 @@ class ImageSearchService
     private function searchContext(): array
     {
         $index = $this->elasticsearch->resolveSearchIndex($this->indexLifecycle->getSearchAlias());
+        $this->structureMigration->requireReady($index);
         $contract = $this->elasticsearch->getIndexContract($index);
         if (!is_string($contract['model_id'] ?? null) || $contract['model_id'] === ''
             || !is_string($contract['model_fingerprint'] ?? null) || $contract['model_fingerprint'] === ''
@@ -149,7 +151,7 @@ class ImageSearchService
         }
     }
 
-    /** Build one bounded ranking from every scope block at one ES point in time.
+    /** Build one ranking over live allowed roots at one ES point in time.
      * The live scope is deliberately rebuilt for every NEW search: third-party
      * ACL/mount changes cannot silently leave a cached permission set stale.
      * @param list<float|int> $vector
@@ -158,52 +160,43 @@ class ImageSearchService
      */
     private function startSession(string $userId, array $vector, int $limit, array $context, ?string $referenceId = null): array
     {
-        $scope = $this->visibleFileScope->batches($userId);
-        $scope->rewind();
-        $first = $scope->valid() ? ($scope->current() ?? []) : [];
-        if ($scope->valid()) {
-            $scope->next();
-        }
-        // Look ahead before choosing the method: the complete scope, not
-        // an individual filter block, determines whether exact search is cheap.
-        $exact = !$scope->valid() && count($first) <= self::EXACT_SCOPE_LIMIT;
+        $permission = $this->visibleFileScope->resolve($userId);
+        $this->structureMigration->requireScopeReady($context['index'], $permission);
+        $mimeTypes = $this->eligibilityService->scanMimeTypes();
+        // Indexed MIME types come from content detection, so extension fallback
+        // for generic Nextcloud MIME values remains valid without indexing names.
+        $scope = isset($permission['match_none']) || $mimeTypes === []
+            ? ['match_none' => new \stdClass()]
+            : ['bool' => ['filter' => [$permission, ['terms' => ['mime_type' => $mimeTypes]]]]];
+        $exact = true;
         $candidates = [];
         $snapshot = null;
         try {
-            if ($first !== []) {
+            if (!isset($scope['match_none'])) {
                 $snapshot = $this->elasticsearch->openSearchSnapshot($context['index']);
-                $block = $first;
-                while (true) {
-                    $hits = $this->elasticsearch->search(
-                        $context['index'], $vector, self::SESSION_RESULT_LIMIT + 1,
-                        $block, $referenceId, $exact,
-                        (string)$context['contract']['model_fingerprint'], $snapshot,
-                    );
-                    foreach ($hits as $hit) {
-                        $candidates[$hit['file_id']] = $hit;
-                    }
-                    uasort($candidates, static fn (array $a, array $b): int =>
-                        ($b['score'] <=> $a['score']) ?: strcmp($a['file_id'], $b['file_id']));
-                    $candidates = array_slice($candidates, 0, self::SESSION_RESULT_LIMIT + 1, true);
-                    if (!$scope->valid()) {
-                        break;
-                    }
-                    $block = $scope->current() ?? [];
-                    $scope->next();
-                }
+                $exact = $this->elasticsearch->scopeIsExact(
+                    $context['index'], $scope, (string)$context['contract']['model_fingerprint'],
+                    $snapshot, self::EXACT_SCOPE_LIMIT,
+                );
+                $candidates = $this->elasticsearch->searchScope(
+                    $context['index'], $vector, self::SESSION_RESULT_LIMIT + 1,
+                    $scope, $referenceId, $exact,
+                    (string)$context['contract']['model_fingerprint'], $snapshot,
+                );
             }
         } finally {
             if ($snapshot !== null) {
                 $this->elasticsearch->closeSearchSnapshot($snapshot);
             }
         }
-        $ranked = array_values($candidates);
+        $ranked = $candidates;
         if ($referenceId !== null) {
             array_unshift($ranked, ['file_id' => $referenceId, 'score' => 1.0, 'is_reference' => true]);
         }
         $payload = [
             'candidates' => array_slice($ranked, 0, self::SESSION_RESULT_LIMIT),
             'search_mode' => $exact ? 'exact' : 'ann',
+            'search_strategy' => 'ScopeSearch',
             'index' => $context['index'],
             'model_fingerprint' => $context['contract']['model_fingerprint'],
             'reference_id' => $referenceId,
@@ -249,6 +242,7 @@ class ImageSearchService
             'has_more' => $more, 'next_offset' => $more ? $next : null,
             'session_id' => $session['session_id'], 'expires_at' => $session['expires_at'],
             'search_mode' => $session['search_mode'],
+            'search_strategy' => 'ScopeSearch',
             'result_limit_reached' => $session['result_limit_reached'],
         ];
     }

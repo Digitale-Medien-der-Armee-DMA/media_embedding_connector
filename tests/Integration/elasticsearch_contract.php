@@ -111,7 +111,7 @@ $http = new class implements \OCP\Http\Client\IClientService {
         return new class implements \OCP\Http\Client\IClient {
             public function request(string $method, string $url, array $options = []) {
                 $raw = file_get_contents($url, false, stream_context_create(['http' => [
-                    'method' => $method, 'ignore_errors' => true, 'header' => 'Content-Type: application/json',
+                    'method' => $method, 'ignore_errors' => true, 'header' => 'Content-Type: ' . ($options['headers']['Content-Type'] ?? 'application/json'),
                     'content' => $options['body'] ?? '',
                 ]]));
                 if ($raw === false) { throw new RuntimeException('HTTP request failed'); }
@@ -163,5 +163,45 @@ try {
 } catch (\OCA\MediaEmbeddingConnector\Exception\ExternalServiceException $e) {
     if ($e->getPublicCode() !== 'search_model_mismatch') { throw $e; }
 }
+// ScopeSearch upgrades existing vectors without copying or re-embedding them.
+$before = $client->getDocumentVector($index, '2', 'fp');
+$client->ensureStructureMapping($index);
+$errors = $client->updateStructureBatch($index, [
+    '1' => ['structure_schema' => 2, 'storage_numeric_id' => 7, 'ancestor_ids' => [10, 100]],
+    '2' => ['structure_schema' => 2, 'storage_numeric_id' => 7, 'ancestor_ids' => [20, 200]],
+    '3' => ['structure_schema' => 2, 'storage_numeric_id' => 7, 'ancestor_ids' => [20, 200, 201]],
+]);
+if ($errors !== []) { throw new RuntimeException('Structure bulk update failed'); }
+$client->refreshIndex($index);
+if ($client->getDocumentVector($index, '2', 'fp') !== $before) { throw new RuntimeException('Metadata update changed vector'); }
+$beforeNoop = request('GET', $baseUrl . '/' . $index . '/_doc/2');
+$client->updateStructureBatch($index, ['2' => ['structure_schema' => 2, 'storage_numeric_id' => 7, 'ancestor_ids' => [20, 200]]]);
+$afterNoop = request('GET', $baseUrl . '/' . $index . '/_doc/2');
+if ($beforeNoop['_seq_no'] !== $afterNoop['_seq_no']) { throw new RuntimeException('Unchanged metadata caused a new vector write'); }
+$scope = ['bool' => ['should' => [
+    ['terms' => ['ancestor_ids' => [200]]], ['ids' => ['values' => ['3']]],
+], 'minimum_should_match' => 1]];
+$pit = $client->openSearchSnapshot($index);
+try {
+    if (!$client->scopeIsExact($index, $scope, 'fp', $pit, 10000)
+        || $client->scopeIsExact($index, $scope, 'fp', $pit, 1)) {
+        throw new RuntimeException('ScopeSearch exact threshold failed');
+    }
+    $ann = $client->searchScope($index, [1.0, 0.0, 0.0], 49, $scope, null, false, 'fp', $pit);
+    $exact = $client->searchScope($index, [1.0, 0.0, 0.0], 49, $scope, null, true, 'fp', $pit);
+    if (array_column($ann, 'file_id') !== ['2', '3'] || array_column($exact, 'file_id') !== ['2', '3']) {
+        throw new RuntimeException('ScopeSearch root filter leaked siblings or duplicated overlapping shares');
+    }
+} finally { $client->closeSearchSnapshot($pit); }
+if ($client->structureRepairBatch($index, 200, '') !== ['2', '3']
+    || $client->structureRepairBatch($index, 200, '2') !== ['3']) {
+    throw new RuntimeException('Subtree repair cursor failed');
+}
+$errors = $client->updateStructureBatch($index, ['999999' => ['structure_schema' => 2, 'ancestor_ids' => [200]], '1' => null]);
+if (($errors['999999'] ?? '') !== 'document_missing_exception' || $client->getDocumentVector($index, '999999') !== null) {
+    throw new RuntimeException('Metadata update resurrected a missing document');
+}
+$client->refreshIndex($index);
+if ($client->getDocumentVector($index, '1') !== null) { throw new RuntimeException('Structure deletion failed'); }
 request('DELETE', $baseUrl . '/' . $index);
 echo "Elasticsearch contract test passed.\n";

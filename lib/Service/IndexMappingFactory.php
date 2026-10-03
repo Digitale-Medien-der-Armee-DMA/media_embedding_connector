@@ -43,6 +43,9 @@ class IndexMappingFactory
                         'similarity' => $similarity,
                     ]],
                     'properties' => [
+                        'structure_schema' => ['type' => 'integer'],
+                        'storage_numeric_id' => ['type' => 'long'],
+                        'ancestor_ids' => ['type' => 'long'],
                         'nextcloud_file_id' => ['type' => 'keyword'],
                         'storage_id' => ['type' => 'keyword'],
                         'etag' => ['type' => 'keyword'],

@@ -1,6 +1,17 @@
 OC.L10N.register(
     "media_embedding_connector",
     {
+    "Update search index · Schema {from} → {to}" : "Suchindex aktualisieren · Schema {from} → {to}",
+    "Status: {status}" : "Status: {status}",
+    "Processed: {done} / {total}" : "Verarbeitet: {done} / {total}",
+    "Download errors" : "Fehler herunterladen",
+    "Restart" : "Neu starten",
+    "Pause" : "Pausieren",
+    "Resume" : "Fortsetzen",
+    "Adding structure metadata" : "Strukturmetadaten werden ergänzt",
+    "Update failed" : "Aktualisierung fehlgeschlagen",
+    "The search index is being updated. Please try again later." : "Der Suchindex wird aktualisiert. Bitte versuche es später erneut.",
+
     "Connection test options" : "Verbindungstest-Optionen",
     "Existing images" : "Bestehende Bilder",
     "Media Embedding Connector" : "Media Embedding Connector",

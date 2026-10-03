@@ -78,6 +78,8 @@
 				{{ indexingEnabled ? t('Disable indexing') : t('Enable indexing') }}
 			</NcButton>
 			</div>
+		<StructureProgress v-if="structureMigration" :migration="structureMigration" :busy="busy"
+			@control="$emit('structure-control', $event)" @download-errors="$emit('structure-errors')" />
 		<h4 class="mec-subheading">{{ t('Existing images') }}</h4>
 		<BackfillProgress v-if="backfill" :backfill="backfill" :now="now" />
 		<div class="mec-row mec-row--wrap">
@@ -120,6 +122,7 @@ import PauseIcon from 'vue-material-design-icons/Pause.vue';
 import PlayIcon from 'vue-material-design-icons/Play.vue';
 import RefreshIcon from 'vue-material-design-icons/Refresh.vue';
 import BackfillProgress from './BackfillProgress.vue';
+import StructureProgress from './StructureProgress.vue';
 import { t } from '../l10n.js';
 
 defineProps({
@@ -133,6 +136,7 @@ defineProps({
 	indexingEnabled: { type: Boolean, default: false },
 	busy: { type: Boolean, default: false },
 	backfill: { type: Object, default: null },
+	structureMigration: { type: Object, default: null },
 	now: { type: Number, default: () => Math.floor(Date.now() / 1000) },
 });
 
@@ -151,5 +155,7 @@ defineEmits([
 	'pause-backfill',
 	'resume-backfill',
 	'retry-jobs',
+	'structure-control',
+	'structure-errors',
 ]);
 </script>
